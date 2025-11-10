@@ -286,49 +286,65 @@ async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
         return []
 
 async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
+    # CORREÇÃO: Obter a Page correta (pode ser page_or_frame se for Page, ou page_or_frame.page se for Frame)
+    if isinstance(page_or_frame, Page):
+        page_obj = page_or_frame
+    else:
+        page_obj = page_or_frame.page
+    
     # Otimização: usar set para URLs e reduzir verificações
     urls: List[str] = []
     seen_urls = set()
     
-    # CORREÇÃO: Seletores mais específicos para evitar cliques em links de navegação
-    # Excluir explicitamente links de navegação (homem, casa, etc.)
+    # CORREÇÃO: Seletores mais específicos para produtos (sem filtros :not que podem falhar)
+    # Vamos filtrar manualmente depois para ter mais controle
     candidates = page_or_frame.locator(
-        '[data-testid*="product"]:not([href*="/homem"]):not([href*="/casa"]):not([href*="/masculino"]), '
-        '[class*="product-card"]:not([href*="/homem"]):not([href*="/casa"]):not([href*="/masculino"]), '
-        '[class*="ProductCard"]:not([href*="/homem"]):not([href*="/casa"]):not([href*="/masculino"])'
+        '[data-testid*="product"], '
+        '[class*="product-card"], '
+        '[class*="ProductCard"]'
     )
     count = await candidates.count()
     max_iter = min(count, limit * 4)
     
     # CORREÇÃO: Guardar URL inicial para verificar se ainda estamos na página correta
-    initial_url = page_or_frame.page.url
+    initial_url = page_obj.url
     
     for i in range(max_iter):
         if len(urls) >= limit: break
         
         # CORREÇÃO: Verificar se ainda estamos na URL correta antes de continuar
-        current_url = page_or_frame.page.url
+        current_url = page_obj.url
         if not CATEGORY_URL.split('?')[0] in current_url and not PDP_URL_RE.search(current_url):
             log.warning("Navegação inesperada detectada. Voltando para categoria: %s", current_url)
             try:
-                await robust_goto(page_or_frame.page, CATEGORY_URL)
-                await page_or_frame.page.wait_for_timeout(1000)
-                await _maybe_accept_cookies(page_or_frame.page)
-                await _close_overlays(page_or_frame.page)
+                await robust_goto(page_obj, CATEGORY_URL)
+                await page_obj.wait_for_timeout(1000)
+                await _maybe_accept_cookies(page_obj)
+                await _close_overlays(page_obj)
             except Exception:
                 pass
         
         el = candidates.nth(i)
         try:
             # CORREÇÃO: Verificar se o elemento contém link de produto antes de clicar
+            # Verificar href no próprio elemento ou em filhos
             href = None
             try:
-                link_el = el.locator('a[href]').first
-                if await link_el.count() > 0:
-                    href = await link_el.get_attribute('href')
-                    # Filtrar links de navegação
-                    if href and ('/homem' in href or '/casa' in href or '/masculino' in href or 
-                                 '/feminino/vestuario' not in href and not PDP_URL_RE.search(href)):
+                # Tentar pegar href do elemento ou de um link filho
+                href_attr = await el.get_attribute('href')
+                if not href_attr:
+                    link_el = el.locator('a[href]').first
+                    if await link_el.count() > 0:
+                        href_attr = await link_el.get_attribute('href')
+                
+                if href_attr:
+                    href = href_attr
+                    # Filtrar links de navegação explicitamente
+                    href_lower = href.lower()
+                    if any(x in href_lower for x in ['/homem', '/casa', '/masculino']):
+                        continue
+                    # Se não é produto e não é da categoria feminino/vestuario, pular
+                    if not PDP_URL_RE.search(href) and '/feminino/vestuario' not in href:
                         continue
             except Exception:
                 pass
@@ -349,40 +365,40 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
 
             # espera SPA mudar para PDP
             try:
-                await page_or_frame.page.wait_for_url(PDP_URL_RE, timeout=6000)
+                await page_obj.wait_for_url(PDP_URL_RE, timeout=6000)
             except Exception:
                 # CORREÇÃO: Se não mudou para PDP, voltar para categoria
-                if not PDP_URL_RE.search(page_or_frame.page.url):
+                if not PDP_URL_RE.search(page_obj.url):
                     try:
-                        await robust_goto(page_or_frame.page, CATEGORY_URL)
-                        await page_or_frame.page.wait_for_timeout(1000)
-                        await _maybe_accept_cookies(page_or_frame.page)
-                        await _close_overlays(page_or_frame.page)
+                        await robust_goto(page_obj, CATEGORY_URL)
+                        await page_obj.wait_for_timeout(1000)
+                        await _maybe_accept_cookies(page_obj)
+                        await _close_overlays(page_obj)
                     except Exception:
                         pass
                 continue
 
-            u = page_or_frame.page.url
+            u = page_obj.url
             if PDP_URL_RE.search(u) and u not in seen_urls:
                 seen_urls.add(u)
                 urls.append(u)
 
             # volta para a categoria
             try:
-                await page_or_frame.page.go_back(wait_until="domcontentloaded", timeout=12000)
+                await page_obj.go_back(wait_until="domcontentloaded", timeout=12000)
                 # CORREÇÃO: Verificar se voltou para a categoria correta
-                await page_or_frame.page.wait_for_timeout(1000)
-                final_url = page_or_frame.page.url
+                await page_obj.wait_for_timeout(1000)
+                final_url = page_obj.url
                 if not CATEGORY_URL.split('?')[0] in final_url:
                     log.warning("Não voltou para categoria correta após go_back. Recarregando...")
-                    await robust_goto(page_or_frame.page, CATEGORY_URL)
-                    await _maybe_accept_cookies(page_or_frame.page)
-                    await _close_overlays(page_or_frame.page)
+                    await robust_goto(page_obj, CATEGORY_URL)
+                    await _maybe_accept_cookies(page_obj)
+                    await _close_overlays(page_obj)
             except Exception:
                 # recarrega categoria se necessário
-                await robust_goto(page_or_frame.page, CATEGORY_URL)
-                await _maybe_accept_cookies(page_or_frame.page)
-                await _close_overlays(page_or_frame.page)
+                await robust_goto(page_obj, CATEGORY_URL)
+                await _maybe_accept_cookies(page_obj)
+                await _close_overlays(page_obj)
         except Exception:
             continue
     return urls
