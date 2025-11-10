@@ -24,7 +24,7 @@ CATEGORY_URL = (
 PRODUCT_LIMIT = 5
 OUTPUT_XLSX   = "hm_status.xlsx"
 HEADLESS      = False
-LOG_LEVEL     = "INFO"
+LOG_LEVEL     = "INFO"  # Mude para "DEBUG" para ver mais detalhes
 
 # Descoberta de PDPs (ligue/desligue conforme necessidade)
 USE_SHADOW_SCAN   = True
@@ -209,18 +209,21 @@ DISCOVERY_JS = r"""
   //  - JSON-LD com url para produto
   const out = new Set();
   const PDP = /\/(p|produto|product)\//i;
-  // CORREÇÃO: Filtrar links de navegação
-  const NAV_EXCLUDE = /(\/homem|\/casa|\/masculino)(\/|$)/i;
+  // CORREÇÃO: Filtrar links de navegação (mas ser menos restritivo)
+  const NAV_EXCLUDE = /(\/homem\/|\/casa\/|\/masculino\/)(?!.*\/p\/|\/produto\/|\/product\/)/i;
 
   const extractFromRoot = (root) => {
     try {
-      // anchors
+      // anchors - buscar TODOS os links primeiro
       root.querySelectorAll('a[href]').forEach(a => {
         const h = a.getAttribute('href') || '';
         const abs = a.href || '';
-        // CORREÇÃO: Filtrar links de navegação antes de adicionar
-        if (PDP.test(h) && !NAV_EXCLUDE.test(h)) out.add(h);
-        else if (PDP.test(abs) && !NAV_EXCLUDE.test(abs)) out.add(abs);
+        // Adicionar se for PDP e não for link de navegação puro
+        if (PDP.test(h)) {
+          // Só excluir se for claramente uma página de categoria de navegação
+          if (!NAV_EXCLUDE.test(h)) out.add(h);
+        }
+        if (PDP.test(abs) && !NAV_EXCLUDE.test(abs)) out.add(abs);
       });
 
       // atributos
@@ -273,16 +276,24 @@ DISCOVERY_JS = r"""
 async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
     try:
         urls = await page_or_frame.evaluate(DISCOVERY_JS)
+        if urls:
+            log.info("JavaScript encontrou %d URLs brutas", len(urls))
+        else:
+            log.warning("JavaScript não encontrou nenhuma URL")
         # Otimização: usar set para deduplicação mais eficiente
         seen = set()
         uniq = []
         for u in urls:
             if not u or u in seen: continue
-            if not PDP_URL_RE.search(u): continue
+            if not PDP_URL_RE.search(u): 
+                log.debug("URL não é PDP, ignorando: %s", u[:100])
+                continue
             seen.add(u)
             uniq.append(u)
+        log.debug("Após filtragem, %d URLs de produto válidas", len(uniq))
         return uniq
-    except Exception:
+    except Exception as e:
+        log.error("Erro ao coletar URLs: %s", e)
         return []
 
 async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
@@ -462,7 +473,24 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
         log.error("Não foi possível garantir que estamos na página de categoria. Abortando descoberta.")
         return []
 
+    # IMPORTANTE: Fazer scroll e load_more PRIMEIRO para carregar produtos na página
+    log.info("Fazendo scroll para carregar produtos...")
+    if await _ensure_on_category_page(page):
+        await _auto_scroll(page)
+        if not await _ensure_on_category_page(page):
+            log.warning("URL mudou após scroll inicial.")
+    
+    log.info("Tentando carregar mais produtos...")
+    if await _ensure_on_category_page(page):
+        await _load_more(page)
+        if not await _ensure_on_category_page(page):
+            log.warning("URL mudou após load_more.")
+    
+    # Aguardar um pouco para produtos carregarem
+    await page.wait_for_timeout(2000)
+    
     # 1) no documento principal
+    log.info("Coletando URLs do documento principal...")
     await add_from_ctx(page, "document")
     
     # Verificar URL após primeira coleta
@@ -473,29 +501,65 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     # 3) frames (se existirem)
     if USE_FRAME_SCAN:
         frames = [fr for fr in page.frames if fr != page.main_frame]
+        log.info("Verificando %d frames...", len(frames))
         for fr in frames:
             try:
                 await add_from_ctx(fr, f"frame:{fr.url}")
             except Exception:
                 continue
-
-    # CORREÇÃO: Verificar URL antes de load_more
-    if not await _ensure_on_category_page(page):
-        log.warning("URL incorreta antes de load_more. Pulando...")
-    else:
-        await _load_more(page)
-        # Verificar URL após load_more
-        if not await _ensure_on_category_page(page):
-            log.warning("URL mudou após load_more.")
     
-    # Verificar URL antes de scroll
-    if not await _ensure_on_category_page(page):
-        log.warning("URL incorreta antes de scroll. Pulando...")
-    else:
-        await _auto_scroll(page)
-        # Verificar URL após scroll
-        if not await _ensure_on_category_page(page):
-            log.warning("URL mudou após scroll.")
+    # Se ainda não encontrou produtos, tentar método alternativo
+    if len(found) == 0:
+        log.warning("Nenhum produto encontrado pelo método JavaScript. Tentando método alternativo...")
+        # Método alternativo: buscar por seletores CSS diretos
+        try:
+            # Tentar vários seletores diferentes
+            selectors = [
+                'a[href*="/p/"]',
+                'a[href*="/produto/"]',
+                'a[href*="/product/"]',
+                '[data-testid*="product"] a[href]',
+                '[class*="product"] a[href]',
+                'article a[href]',
+            ]
+            
+            all_links = set()
+            for selector in selectors:
+                try:
+                    links = page.locator(selector)
+                    count = await links.count()
+                    log.info("Seletor '%s' encontrou %d elementos", selector, count)
+                    for i in range(min(count, limit * 5)):
+                        try:
+                            href = await links.nth(i).get_attribute('href')
+                            if href:
+                                all_links.add(href)
+                        except Exception:
+                            continue
+                except Exception as e:
+                    log.debug("Erro com seletor %s: %s", selector, e)
+                    continue
+            
+            log.info("Total de links únicos encontrados: %d", len(all_links))
+            
+            for href in all_links:
+                try:
+                    nh = _normalize_href(href)
+                    nh_lower = nh.lower()
+                    # Filtrar navegação
+                    if any(x in nh_lower for x in ['/homem/', '/casa/', '/masculino/']):
+                        continue
+                    # Deve ser um produto
+                    if PDP_URL_RE.search(nh) and nh not in seen:
+                        seen.add(nh)
+                        found.append(nh)
+                        log.info("  + método alternativo -> %s", nh)
+                        if len(found) >= limit:
+                            break
+                except Exception:
+                    continue
+        except Exception as e:
+            log.error("Erro no método alternativo: %s", e)
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
     # NOTA: Click fallback está desabilitado por padrão para evitar navegações indesejadas
@@ -525,6 +589,21 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
                 continue
 
     log.info("Links detectados — total:%d", len(found))
+    
+    if len(found) == 0:
+        log.error("NENHUM produto foi encontrado! Possíveis causas:")
+        log.error("  1. A página não carregou corretamente")
+        log.error("  2. Os produtos não estão visíveis na página")
+        log.error("  3. Os seletores não estão encontrando os elementos")
+        log.error("  URL atual: %s", page.url)
+        log.error("  Tente aumentar LOG_LEVEL para 'DEBUG' para ver mais detalhes")
+        # Tirar screenshot para debug
+        try:
+            await page.screenshot(path="DEBUG_no_products.png", full_page=True)
+            log.error("Screenshot salvo em DEBUG_no_products.png")
+        except Exception:
+            pass
+    
     return found[:limit]
 
 # ------------------ PDP -> nome + tamanhos ------------------
