@@ -509,15 +509,16 @@ PARSE_SIZES_JS = r"""
     }
     if (!label) continue;
 
-    const disabledAttr = el.getAttribute("data-fs-sku-selector-disabled");
-    const stockStatus = (el.getAttribute("data-fs-stock-status") || "").toLowerCase();
-    const lowAttr = el.getAttribute("data-fs-sku-selector-low-stock") === "true";
-    const lowClosest = !!el.closest('[data-fs-sku-selector-low-stock="true"]');
-    const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-    const titleAttr = (el.getAttribute("title") || "").toLowerCase();
-    const disabled = disabledAttr === "true" || !!el.disabled || el.getAttribute("aria-disabled") === "true" || getComputedStyle(el).pointerEvents === "none";
-    const meta = ((el.className||"") + " " + aria + " " + titleAttr + " " + stockStatus).toLowerCase();
-    const sold = disabled || hasLineThrough(el) || /(soldout|sold-out|out-of-stock|unavailable|esgotad)/.test(meta);
+    const carrier = el.closest('[data-fs-sku-selector-option]') || el;
+    const disabledAttr = carrier.getAttribute("data-fs-sku-selector-disabled");
+    const stockStatus = (carrier.getAttribute("data-fs-stock-status") || "").toLowerCase();
+    const lowAttr = carrier.getAttribute("data-fs-sku-selector-low-stock") === "true";
+    const lowClosest = !!carrier.closest('[data-fs-sku-selector-low-stock="true"]');
+    const aria = (carrier.getAttribute("aria-label") || el.getAttribute("aria-label") || "").toLowerCase();
+    const titleAttr = (carrier.getAttribute("title") || el.getAttribute("title") || "").toLowerCase();
+    const disabled = disabledAttr === "true" || !!carrier.disabled || carrier.getAttribute("aria-disabled") === "true" || getComputedStyle(carrier).pointerEvents === "none";
+    const meta = ((carrier.className||"") + " " + (el.className||"") + " " + aria + " " + titleAttr + " " + stockStatus).toLowerCase();
+    const sold = disabled || hasLineThrough(carrier) || hasLineThrough(el) || /(soldout|sold-out|out-of-stock|unavailable|esgotad)/.test(meta);
     const lowStockFlag = stockStatus.includes("low") || lowAttr || lowClosest || aria.includes("poucas") || titleAttr.includes("poucas");
     const low  = !sold && (lowStockFlag || hasRedIndicator(el)); // dot vermelho, atributo low-stock ou label associado
 
