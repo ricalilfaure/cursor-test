@@ -92,6 +92,8 @@ PRODUCT_HINT_SELECTORS = [
     "article[data-fs-product-card-custom='true'] a[href]",
 ]
 
+CARD_SELECTOR = "article[data-fs-product-card-custom='true']"
+
 
 # ---------------------- utils ----------------------
 
@@ -344,6 +346,44 @@ async def _collect_card_urls(page_or_frame) -> List[str]:
         return []
 
 
+async def _ensure_cards_loaded(page: Page, category_url: str, page_number: int) -> bool:
+    for attempt in range(1, PAGE_RETRIES + 1):
+        try:
+            count = await page.locator(CARD_SELECTOR).count()
+            if count > 0:
+                return True
+            await page.wait_for_selector(CARD_SELECTOR, timeout=5_000)
+            count = await page.locator(CARD_SELECTOR).count()
+            if count > 0:
+                return True
+        except PWTimeout:
+            log.warning(
+                "Nenhum card visível na página %d (tentativa %d/%d).",
+                page_number,
+                attempt,
+                PAGE_RETRIES,
+            )
+        except Exception as exc:
+            log.warning(
+                "Erro ao aguardar cards na página %d (tentativa %d/%d): %s",
+                page_number,
+                attempt,
+                PAGE_RETRIES,
+                exc,
+            )
+
+        if attempt < PAGE_RETRIES:
+            log.info("Recarregando página %d para tentar carregar os cards...", page_number)
+            try:
+                await page.goto(category_url, wait_until="domcontentloaded")
+                await page.wait_for_load_state("networkidle", timeout=15_000)
+            except Exception as exc:
+                log.warning("Falha ao recarregar página %d: %s", page_number, exc)
+            await page.wait_for_timeout(1_500)
+
+    return False
+
+
 async def _discover_by_click_in(page_or_frame, limit: Optional[int], category_url: str) -> List[str]:
     urls: List[str] = []
     anchors = page_or_frame.locator(
@@ -394,6 +434,11 @@ async def discover_pdp_urls(page: Page, limit: Optional[int], category_url: str)
     seen_keys: Set[str] = set()
 
     async def wait_for_candidates():
+        try:
+            await page.wait_for_selector(CARD_SELECTOR, timeout=6_000)
+            return
+        except Exception:
+            pass
         for sel in PRODUCT_HINT_SELECTORS:
             try:
                 await page.wait_for_selector(sel, timeout=6_000)
@@ -767,6 +812,11 @@ async def main():
             await page.wait_for_timeout(600)
             await _maybe_accept_cookies(page)
             await _close_overlays(page)
+
+            cards_ready = await _ensure_cards_loaded(page, category_url, offset + 1)
+            if not cards_ready:
+                log.error("Cards não carregaram na página %d; pulando.", offset + 1)
+                continue
 
             log.info("Fazendo scroll e coletando produtos da página...")
             novos = await discover_pdp_urls(page, None, category_url)
