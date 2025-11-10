@@ -15,6 +15,7 @@ CATEGORY_URL_TEMPLATE = (
 )
 START_PAGE = 0
 PAGES_TO_SCAN = 5
+PAGE_RETRIES = 3
 OUTPUT_XLSX = "hm_status.xlsx"
 HEADLESS = False
 LOG_LEVEL = "INFO"
@@ -742,16 +743,26 @@ async def main():
                 PAGES_TO_SCAN,
                 category_url,
             )
-            try:
-                await page.goto(category_url, wait_until="domcontentloaded")
-            except PWTimeout:
-                log.warning("Timeout no goto da categoria (página %d); seguindo.", offset + 1)
-                continue
+            success = False
+            for attempt in range(1, PAGE_RETRIES + 1):
+                try:
+                    await page.goto(category_url, wait_until="domcontentloaded")
+                    await page.wait_for_load_state("networkidle", timeout=15_000)
+                    success = True
+                    if attempt > 1:
+                        log.info("Página %d carregada com sucesso na tentativa %d.", offset + 1, attempt)
+                    break
+                except PWTimeout:
+                    log.warning("Timeout ao carregar página %d (tentativa %d/%d).", offset + 1, attempt, PAGE_RETRIES)
+                except Exception as exc:
+                    log.warning("Falha ao carregar página %d (tentativa %d/%d): %s", offset + 1, attempt, PAGE_RETRIES, exc)
 
-            try:
-                await page.wait_for_load_state("networkidle", timeout=15_000)
-            except Exception:
-                pass
+                if attempt < PAGE_RETRIES:
+                    await page.wait_for_timeout(2_000)
+                    continue
+            if not success:
+                log.error("Não foi possível carregar a página %d após %d tentativas; pulando.", offset + 1, PAGE_RETRIES)
+                continue
 
             await page.wait_for_timeout(600)
             await _maybe_accept_cookies(page)
