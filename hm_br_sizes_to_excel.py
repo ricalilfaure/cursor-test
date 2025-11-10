@@ -428,20 +428,16 @@ async def discover_pdp_urls(page: Page, limit: Optional[int], category_url: str)
     # coleta ordenada via cards visíveis
     card_urls = await _collect_card_urls(page)
     await add_urls(card_urls, "cards")
-    if quota_reached():
-        return found[:limit] if limit is not None else found
 
     async def add_from_ctx(ctx, tag: str):
         got = await _collect_pdp_urls_in(ctx)
         await add_urls(got, tag)
 
-    # 1) no documento principal (conteúdo inicial)
-    await add_from_ctx(page, "document")
-    if quota_reached():
-        return found[:limit] if limit is not None else found
+    if not found:
+        # fallback para DOM completo se nenhum card foi capturado
+        await add_from_ctx(page, "document")
 
-    # 2) frames antes de scroll (conteúdo inicial em iframes)
-    if USE_FRAME_SCAN and not quota_reached():
+    if USE_FRAME_SCAN and not quota_reached() and not found:
         for fr in page.frames:
             if fr == page.main_frame:
                 continue
@@ -450,15 +446,22 @@ async def discover_pdp_urls(page: Page, limit: Optional[int], category_url: str)
             except Exception:
                 continue
 
+    if quota_reached():
+        return found[:limit] if limit is not None else found
+
     # 3) aciona carregamento incremental
     await _load_more(page)
     await _auto_scroll(page)
     await wait_for_candidates()
+    # reexecuta coleta ordenada após carregar mais cards
+    prev = len(found)
+    await add_urls(await _collect_card_urls(page), "cards-scroll")
     if quota_reached():
         return found[:limit] if limit is not None else found
 
-    # 4) revarre documento após scroll (novos cards carregados)
-    await add_from_ctx(page, "document-scroll")
+    if len(found) == prev:
+        # 4) fallback apenas se nenhuma nova URL foi adicionada via cards
+        await add_from_ctx(page, "document-scroll")
 
     if USE_FRAME_SCAN and not quota_reached():
         for fr in page.frames:
@@ -471,7 +474,7 @@ async def discover_pdp_urls(page: Page, limit: Optional[int], category_url: str)
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
     remaining = None if limit is None else max(limit - len(found), 0)
-    if USE_CLICK_FALLBACK and (remaining is None or remaining > 0):
+    if USE_CLICK_FALLBACK and limit is not None and (remaining is None or remaining > 0):
         extra = await _discover_by_click_in(page, remaining, category_url)
         if extra:
             new = []
@@ -486,7 +489,7 @@ async def discover_pdp_urls(page: Page, limit: Optional[int], category_url: str)
                 log.info("  + click(main) -> %d URLs", len(new))
                 found.extend(new)
 
-    if USE_CLICK_FALLBACK and (limit is None or len(found) < limit):
+    if USE_CLICK_FALLBACK and limit is not None and len(found) < limit:
         for fr in page.frames:
             if limit is not None and len(found) >= limit:
                 break
