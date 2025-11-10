@@ -59,11 +59,15 @@ log = logging.getLogger("hm")
 # ---------------------- utils ----------------------
 
 def _order_sizes(all_sizes: List[str]) -> List[str]:
+    # Otimização: usar sets para classificação mais rápida
+    size_set = set(all_sizes)
     letters = [s for s in all_sizes if s.isalpha()]
     nums    = [s for s in all_sizes if s.isdigit()]
-    other   = [s for s in all_sizes if s not in letters and s not in nums]
-    ordered_letters = sorted(letters, key=lambda x: (LETTER_SIZES.index(x) if x in LETTER_SIZES else 999, x))
-    ordered_nums    = sorted(nums, key=lambda x: int(x))
+    other   = [s for s in size_set if s not in letters and s not in nums]
+    # Cache do índice para evitar múltiplas buscas
+    letter_index_map = {s: i for i, s in enumerate(LETTER_SIZES)}
+    ordered_letters = sorted(letters, key=lambda x: (letter_index_map.get(x, 999), x))
+    ordered_nums    = sorted(nums, key=int)
     ordered_other   = sorted(other)
     return ordered_letters + ordered_nums + ordered_other
 
@@ -87,6 +91,7 @@ async def robust_goto(page: Page, url: str):
 # ------------------ cookies/overlays ------------------
 
 async def _maybe_accept_cookies(page: Page):
+    # Otimização: verificar visibilidade antes de count (mais rápido)
     for sel in [
         "#onetrust-accept-btn-handler",
         "button#onetrust-accept-btn-handler",
@@ -96,16 +101,17 @@ async def _maybe_accept_cookies(page: Page):
         "button:has-text('Accept')",
     ]:
         try:
-            btn = page.locator(sel)
-            if await btn.count() > 0:
-                await btn.first.click()
+            btn = page.locator(sel).first
+            if await btn.is_visible(timeout=500):
+                await btn.click()
                 log.info("Cookie banner aceito (%s).", sel)
-                await page.wait_for_timeout(400)
+                await page.wait_for_timeout(300)  # Reduzido de 400ms
                 break
         except Exception:
             pass
 
 async def _close_overlays(page: Page):
+    # Otimização: verificar visibilidade antes de count
     for sel in [
         "button[aria-label='Fechar']",
         "button:has-text('Fechar')",
@@ -114,43 +120,49 @@ async def _close_overlays(page: Page):
         "button[aria-label*='close' i]",
     ]:
         try:
-            el = page.locator(sel)
-            if await el.count() > 0:
-                await el.first.click()
+            el = page.locator(sel).first
+            if await el.is_visible(timeout=300):
+                await el.click()
                 log.info("Overlay fechado (%s).", sel)
-                await page.wait_for_timeout(250)
+                await page.wait_for_timeout(200)  # Reduzido de 250ms
         except Exception:
             pass
 
 # ------------------ auto-scroll / load more ------------------
 
-async def _auto_scroll(page: Page, max_rounds: int = 60, pause_ms: int = 900):
+async def _auto_scroll(page: Page, max_rounds: int = 60, pause_ms: int = 700):
+    # Otimização: reduzir pause_ms e usar evaluate_once para scrollHeight
     prev_h = 0
     stable = 0
+    scroll_script = "document.documentElement.scrollHeight"
     for i in range(max_rounds):
-        cur_h = await page.evaluate("document.documentElement.scrollHeight")
-        if cur_h <= prev_h: stable += 1
-        else: stable = 0
-        if stable >= 3: break
+        cur_h = await page.evaluate(scroll_script)
+        if cur_h <= prev_h: 
+            stable += 1
+            if stable >= 3: break
+        else: 
+            stable = 0
         await page.mouse.wheel(0, 2400)
         await page.wait_for_timeout(pause_ms)
         prev_h = cur_h
     log.info("Auto-scroll finalizado (altura=%s, iterações=%s).", prev_h, i + 1)
 
 async def _load_more(page: Page, max_clicks: int = 8):
+    # Otimização: verificar visibilidade primeiro (mais rápido que count)
+    btn_selector = (
+        'button:has-text("Carregar mais"), '
+        'button:has-text("Mais produtos"), '
+        'button:has-text("Load more"), '
+        'button:has-text("Ver mais"), '
+        'button:has-text("Mostrar mais")'
+    )
     for _ in range(max_clicks):
         try:
-            btn = page.locator(
-                'button:has-text("Carregar mais"), '
-                'button:has-text("Mais produtos"), '
-                'button:has-text("Load more"), '
-                'button:has-text("Ver mais"), '
-                'button:has-text("Mostrar mais")'
-            )
-            if await btn.count() > 0 and await btn.first.is_visible():
-                await btn.first.click()
+            btn = page.locator(btn_selector).first
+            if await btn.is_visible(timeout=1000):
+                await btn.click()
                 log.info("Clicado em 'Carregar mais'.")
-                await page.wait_for_timeout(1800)
+                await page.wait_for_timeout(1500)  # Reduzido de 1800ms
             else:
                 break
         except Exception:
@@ -226,53 +238,61 @@ DISCOVERY_JS = r"""
 async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
     try:
         urls = await page_or_frame.evaluate(DISCOVERY_JS)
-        # normaliza e filtra
+        # Otimização: usar set para deduplicação mais eficiente
+        seen = set()
         uniq = []
         for u in urls:
-            if not u: continue
+            if not u or u in seen: continue
             if not PDP_URL_RE.search(u): continue
-            # normalização simples (sem resolver URL relativa aqui; faremos em Python)
-            if u not in uniq: uniq.append(u)
+            seen.add(u)
+            uniq.append(u)
         return uniq
     except Exception:
         return []
 
 async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
+    # Otimização: usar set para URLs e reduzir verificações
     urls: List[str] = []
+    seen_urls = set()
     candidates = page_or_frame.locator(
         '[data-testid*="product"], [class*="product-card"], [class*="ProductCard"], ' +
         'article, li, a[role], div[role="link"]'
     )
     count = await candidates.count()
-    for i in range(min(count, limit * 4)):
+    max_iter = min(count, limit * 4)
+    
+    for i in range(max_iter):
         if len(urls) >= limit: break
         el = candidates.nth(i)
         try:
             await el.scroll_into_view_if_needed()
             clicked = False
+            # Otimização: tentar cliques mais específicos primeiro
             for sel in ["a", "button", "img", "*"]:
                 try:
                     target = el.locator(sel).first if sel != "*" else el
-                    await target.click(timeout=3000, force=True)
-                    clicked = True
-                    break
+                    if await target.is_visible(timeout=500):
+                        await target.click(timeout=2000, force=True)  # Reduzido de 3000ms
+                        clicked = True
+                        break
                 except Exception:
                     continue
             if not clicked: continue
 
             # espera SPA mudar para PDP
             try:
-                await page_or_frame.page.wait_for_url(PDP_URL_RE, timeout=8000)
+                await page_or_frame.page.wait_for_url(PDP_URL_RE, timeout=6000)  # Reduzido de 8000ms
             except Exception:
                 continue
 
             u = page_or_frame.page.url
-            if PDP_URL_RE.search(u) and u not in urls:
+            if PDP_URL_RE.search(u) and u not in seen_urls:
+                seen_urls.add(u)
                 urls.append(u)
 
             # volta para a categoria
             try:
-                await page_or_frame.page.go_back(wait_until="domcontentloaded", timeout=15000)
+                await page_or_frame.page.go_back(wait_until="domcontentloaded", timeout=12000)  # Reduzido de 15000ms
             except Exception:
                 # recarrega categoria se necessário
                 await robust_goto(page_or_frame.page, CATEGORY_URL)
@@ -283,16 +303,19 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
     return urls
 
 async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
+    # Otimização: usar set para deduplicação mais eficiente
     found: List[str] = []
+    seen = set()
 
     async def add_from_ctx(ctx, tag: str):
-        nonlocal found
+        nonlocal found, seen
         got = await _collect_pdp_urls_in(ctx)
         # normaliza e agrega
         buf = []
         for h in got:
             nh = _normalize_href(h)
-            if PDP_URL_RE.search(nh) and nh not in found and nh not in buf:
+            if PDP_URL_RE.search(nh) and nh not in seen:
+                seen.add(nh)
                 buf.append(nh)
         if buf:
             log.info("  + %s -> %d URLs", tag, len(buf))
@@ -304,8 +327,8 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     # 2) shadow/atributos/anchors varridos pelo JS (já incluso no passo 1)
     # 3) frames (se existirem)
     if USE_FRAME_SCAN:
-        for fr in page.frames:
-            if fr == page.main_frame: continue
+        frames = [fr for fr in page.frames if fr != page.main_frame]
+        for fr in frames:
             try:
                 await add_from_ctx(fr, f"frame:{fr.url}")
             except Exception:
@@ -322,9 +345,9 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             found.extend(extra)
 
     if USE_CLICK_FALLBACK and len(found) < limit:
-        for fr in page.frames:
+        frames = [fr for fr in page.frames if fr != page.main_frame]
+        for fr in frames:
             if len(found) >= limit: break
-            if fr == page.main_frame: continue
             try:
                 extra = await _discover_by_click_in(fr, limit - len(found))
                 if extra:
@@ -341,14 +364,16 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
 async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
     """Extrai (nome, {tamanho: status}) — família única (letras OU pares 32–52),
        'Poucas' somente com quadrado vermelho no próprio botão; 'Esgotado' por disabled/risco."""
-    # 1) Nome
+    # 1) Nome - Otimização: verificar visibilidade antes de count
     name = ""
     for sel in ["h1", 'meta[property="og:title"]', "title"]:
         try:
-            loc = page.locator(sel)
-            if await loc.count() > 0:
-                v = await (loc.first.get_attribute("content") if sel.startswith("meta") else loc.first.inner_text())
-                if v and v.strip(): name = v.strip(); break
+            loc = page.locator(sel).first
+            if await loc.is_visible(timeout=500) or sel.startswith("meta"):
+                v = await (loc.get_attribute("content") if sel.startswith("meta") else loc.inner_text())
+                if v and v.strip(): 
+                    name = v.strip()
+                    break
         except Exception:
             pass
     if not name: name = "Produto H&M"
@@ -423,32 +448,43 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
 
   function hasLineThrough(el){
     // Detecta risco/texto riscado (indicador de esgotado)
+    // Otimização: verificar primeiro o elemento, depois filhos apenas se necessário
     const check = (n) => {
       const cs = getComputedStyle(n);
       const td = (cs.textDecorationLine || cs.textDecoration || "").toLowerCase();
       if (td.includes("line-through")) return true;
       const cl = (n.className || "").toLowerCase();
       if (cl.includes("strike") || cl.includes("line-through") || cl.includes("cross")) return true;
+      // Otimização: verificar apenas uma vez se há elementos s, del, strike
       if (n.querySelector("s, del, strike")) return true;
       return false;
     };
     if (check(el)) return true;
-    for (const k of el.querySelectorAll("*")) if (check(k)) return true;
+    // Otimização: limitar busca em filhos (evitar verificar todos os descendentes)
+    const children = el.querySelectorAll("s, del, strike, [class*='strike'], [class*='line-through']");
+    if (children.length > 0) return true;
+    // Verificar apenas filhos diretos para performance
+    for (const k of el.children) if (check(k)) return true;
     return false;
   }
 
-  // tenta achar o container de tamanhos mais "rico"
-  const containers = Array.from(document.querySelectorAll(
-    '[id*="size" i], [class*="size" i], [data-test*="size" i], section, fieldset, div'
-  )).filter(el => /ESCOLHA O TAMANHO|TAMANHO|SIZE/i.test(el.textContent || ""));
+  // Otimização: tenta achar o container de tamanhos mais "rico" de forma mais eficiente
+  const sizeSelector = '[id*="size" i], [class*="size" i], [data-test*="size" i]';
+  const containers = Array.from(document.querySelectorAll(sizeSelector))
+    .filter(el => {
+      const txt = el.textContent || "";
+      return /ESCOLHA O TAMANHO|TAMANHO|SIZE/i.test(txt);
+    });
 
   let scope = document;
   let best = -1;
-  for (const el of (containers.length ? containers : [document])) {
-    const count = el.querySelectorAll(
-      'button, label, [role="option"], [role="radio"], input[type="radio"]+label, ' +
-      '[data-size], [data-testid*="size" i], li, a, span, div'
-    ).length;
+  const sizeButtonSelector = 'button, label, [role="option"], [role="radio"], input[type="radio"]+label, ' +
+    '[data-size], [data-testid*="size" i]';
+  
+  // Otimização: verificar containers primeiro, depois document
+  const candidates = containers.length ? containers : [document];
+  for (const el of candidates) {
+    const count = el.querySelectorAll(sizeButtonSelector).length;
     if (count > best) { best = count; scope = el; }
   }
 
@@ -477,10 +513,12 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
     if (!label) continue;
 
     // Esgotado: botão desabilitado OU tem risco/texto riscado
+    // Otimização: cachear getComputedStyle para evitar múltiplas chamadas
+    const cs = getComputedStyle(el);
     const disabled = !!el.disabled || el.getAttribute("aria-disabled") === "true" || 
-                     getComputedStyle(el).pointerEvents === "none" ||
-                     getComputedStyle(el).opacity === "0.5" || 
-                     getComputedStyle(el).cursor === "not-allowed";
+                     cs.pointerEvents === "none" ||
+                     cs.opacity === "0.5" || 
+                     cs.cursor === "not-allowed";
     const meta = ((el.className||"") + " " + (el.getAttribute("aria-label")||"") + " " + (el.getAttribute("title")||"")).toLowerCase();
     const sold = disabled || hasLineThrough(el) || /(soldout|sold-out|out-of-stock|unavailable|esgotad)/.test(meta);
     
@@ -519,18 +557,19 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
 # ------------------ Excel ------------------
 
 def build_excel(items: List[Tuple[str, Dict[str, str]]]) -> pd.DataFrame:
-    all_sizes: List[str] = []
+    # Otimização: usar set comprehension e evitar múltiplas iterações
+    all_sizes_set = set()
     for _, mp in items:
-        all_sizes.extend(list(mp.keys()))
-    all_sizes = [s for s in set(all_sizes)
+        all_sizes_set.update(mp.keys())
+    all_sizes = [s for s in all_sizes_set
                  if (s.isalpha() and s in LETTER_SIZES) or (s.isdigit() and s in NUMERIC_ALLOWED)]
     size_cols = _order_sizes(all_sizes)
 
+    # Otimização: construir rows de forma mais eficiente
     rows = []
     for name, mp in items:
         row = {"Nome do Produto": name}
-        for s in size_cols:
-            row[s] = mp.get(s, LABEL_HYPHEN)
+        row.update({s: mp.get(s, LABEL_HYPHEN) for s in size_cols})
         rows.append(row)
     return pd.DataFrame(rows, columns=["Nome do Produto"] + size_cols)
 
@@ -555,7 +594,8 @@ async def main():
         except PWTimeout:
             log.warning("Timeout no goto da categoria; seguindo.")
 
-        await page.wait_for_timeout(1500)
+        # Otimização: reduzir wait inicial e usar wait_for_load_state quando possível
+        await page.wait_for_timeout(1000)  # Reduzido de 1500ms
         await _maybe_accept_cookies(page)
         await _close_overlays(page)
 
@@ -581,16 +621,23 @@ async def main():
                 await page.goto(url, wait_until="domcontentloaded")
             except PWTimeout:
                 log.warning("Timeout no goto do PDP; continuando.")
+            # Otimização: usar domcontentloaded primeiro (mais rápido), depois networkidle se necessário
             try:
-                await page.wait_for_load_state("networkidle", timeout=10_000)
+                await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                await page.wait_for_load_state("networkidle", timeout=8000)  # Reduzido de 10s
             except Exception:
                 pass
-            await page.wait_for_timeout(1200)
+            await page.wait_for_timeout(800)  # Reduzido de 1200ms
             await _maybe_accept_cookies(page)
             await _close_overlays(page)
 
             name, sizes = await parse_pdp(page)
-            log.info(" → %s | tamanhos: %s", name, ", ".join(f"{k}:{v}" for k,v in sorted(sizes.items())))
+            # Otimização: formatar log apenas se houver tamanhos
+            if sizes:
+                sizes_str = ", ".join(f"{k}:{v}" for k, v in sorted(sizes.items()))
+                log.info(" → %s | tamanhos: %s", name, sizes_str)
+            else:
+                log.info(" → %s | nenhum tamanho detectado", name)
             items.append((name, sizes))
 
         await ctx.close(); await browser.close()
