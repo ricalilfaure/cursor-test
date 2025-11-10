@@ -531,47 +531,103 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
         if not await _ensure_category_page(page):
             return []
 
-    # 1) no documento principal
-    await add_from_ctx(page, "document")
+    # ESTRATÉGIA 1: Busca direta por links usando Playwright (mais confiável)
+    log.info("Estratégia 1: Busca direta por links de produto...")
+    try:
+        # Múltiplos seletores para encontrar links de produtos
+        selectors = [
+            'a[href*="/p/"]',
+            'a[href*="/produto/"]',
+            'a[href*="/product/"]',
+            'a[href^="/p/"]',
+            'a[href^="/produto/"]',
+        ]
+        
+        all_found_links = []
+        for selector in selectors:
+            try:
+                links = page.locator(selector)
+                count = await links.count()
+                log.debug("  Seletor '%s': %d links encontrados", selector, count)
+                
+                for i in range(min(count, limit * 5)):
+                    try:
+                        link = links.nth(i)
+                        href = await link.get_attribute("href")
+                        if href:
+                            normalized = _normalize_href(href)
+                            if normalized and normalized not in all_found_links:
+                                all_found_links.append(normalized)
+                    except Exception:
+                        continue
+            except Exception as e:
+                log.debug("  Erro com seletor '%s': %s", selector, e)
+                continue
+        
+        log.debug("  Total de links únicos encontrados: %d", len(all_found_links))
+        
+        # Filtra e adiciona URLs válidas
+        for href in all_found_links:
+            if href not in seen and PDP_URL_RE.search(href):
+                # Verifica se não é de outra categoria
+                if not re.search(r"/(homem|masculino|men|man|casa|home|decoracao)/", href, re.I):
+                    seen.add(href)
+                    found.append(href)
+                    log.debug("  URL válida encontrada: %s", href)
+        
+        if found:
+            log.info("  Estratégia 1 encontrou %d URLs válidas", len(found))
+    except Exception as e:
+        log.warning("Erro na estratégia 1: %s", e)
 
-    # Estratégia alternativa: busca direta por links usando Playwright
-    if len(found) == 0:
-        log.info("Tentando estratégia alternativa de descoberta...")
+    # ESTRATÉGIA 2: JavaScript de descoberta (se ainda não encontrou o suficiente)
+    if len(found) < limit:
+        log.info("Estratégia 2: Busca via JavaScript...")
+        await add_from_ctx(page, "document")
+
+    # ESTRATÉGIA 3: Scroll e carregar mais produtos
+    if len(found) < limit:
+        log.info("Estratégia 3: Fazendo scroll para carregar mais produtos...")
+        if not CATEGORY_URL_BASE.search(page.url):
+            await _ensure_category_page(page)
+        
+        # Faz scroll antes de tentar carregar mais
+        await _auto_scroll(page)
+        await _load_more(page)
+        
+        # Tenta buscar novamente após scroll
         try:
-            # Busca todos os links que podem ser produtos
-            all_links = page.locator('a[href*="/p/"], a[href*="/produto/"], a[href*="/product/"]')
-            link_count = await all_links.count()
-            log.debug("Encontrados %d links potenciais de produto", link_count)
+            links_after_scroll = page.locator('a[href*="/p/"], a[href*="/produto/"]')
+            count_after = await links_after_scroll.count()
+            log.debug("  Após scroll: %d links encontrados", count_after)
             
-            for i in range(min(link_count, limit * 3)):
+            for i in range(min(count_after, limit * 5)):
                 try:
-                    link = all_links.nth(i)
+                    link = links_after_scroll.nth(i)
                     href = await link.get_attribute("href")
                     if href:
                         normalized = _normalize_href(href)
                         if normalized not in seen and PDP_URL_RE.search(normalized):
-                            # Verifica se não é de outra categoria
                             if not re.search(r"/(homem|masculino|men|man|casa|home|decoracao)/", normalized, re.I):
                                 seen.add(normalized)
                                 found.append(normalized)
-                                log.debug("URL encontrada via estratégia alternativa: %s", normalized)
+                                log.debug("  URL encontrada após scroll: %s", normalized)
+                                if len(found) >= limit:
+                                    break
                 except Exception:
                     continue
-            
-            if found:
-                log.info("Estratégia alternativa encontrou %d URLs", len(found))
         except Exception as e:
-            log.warning("Erro na estratégia alternativa: %s", e)
+            log.debug("  Erro ao buscar após scroll: %s", e)
+        
+        # Verifica após scroll
+        if not CATEGORY_URL_BASE.search(page.url):
+            await _ensure_category_page(page)
 
-    # Verifica novamente após primeira coleta
-    if not CATEGORY_URL_BASE.search(page.url):
-        log.warning("Saiu da categoria após primeira coleta. Corrigindo...")
-        await _ensure_category_page(page)
-
-    # 2) shadow/atributos/anchors varridos pelo JS (já incluso no passo 1)
-    # 3) frames (se existirem)
-    if USE_FRAME_SCAN:
+    # ESTRATÉGIA 4: Frames (se existirem)
+    if len(found) < limit and USE_FRAME_SCAN:
+        log.info("Estratégia 4: Buscando em frames...")
         frames = [fr for fr in page.frames if fr != page.main_frame]
+        log.debug("  %d frames encontrados", len(frames))
         for fr in frames:
             if len(found) >= limit:
                 break
@@ -579,16 +635,6 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
                 await add_from_ctx(fr, f"frame:{fr.url}")
             except Exception:
                 continue
-
-    # Verifica antes de scroll/load more
-    if len(found) < limit:
-        if not CATEGORY_URL_BASE.search(page.url):
-            await _ensure_category_page(page)
-        await _load_more(page)
-        await _auto_scroll(page)
-        # Verifica após scroll
-        if not CATEGORY_URL_BASE.search(page.url):
-            await _ensure_category_page(page)
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
     if USE_CLICK_FALLBACK and len(found) < limit:
@@ -953,11 +999,45 @@ async def main():
             log.info("  [%d] %s", i, u)
 
         if not pdp_urls:
+            # Debug detalhado
+            log.error("Nenhum produto encontrado. Fazendo debug detalhado...")
+            
+            # Conta todos os links na página
+            try:
+                all_links = page.locator('a[href]')
+                total_links = await all_links.count()
+                log.error("Total de links <a> na página: %d", total_links)
+                
+                # Conta links que contêm "/p/"
+                p_links = page.locator('a[href*="/p/"]')
+                p_count = await p_links.count()
+                log.error("Links contendo '/p/': %d", p_count)
+                
+                # Mostra alguns exemplos
+                if p_count > 0:
+                    log.error("Exemplos de links encontrados:")
+                    for i in range(min(5, p_count)):
+                        try:
+                            link = p_links.nth(i)
+                            href = await link.get_attribute("href")
+                            text = await link.inner_text()
+                            log.error("  [%d] href='%s' text='%s'", i+1, href, text[:50])
+                        except Exception:
+                            pass
+                
+                # Verifica se há produtos carregados via JavaScript
+                product_elements = page.locator('[class*="product" i], [data-testid*="product" i], article')
+                product_count = await product_elements.count()
+                log.error("Elementos com 'product' no class/testid ou <article>: %d", product_count)
+                
+            except Exception as e:
+                log.error("Erro ao fazer debug: %s", e)
+            
             await page.screenshot(path="DEBUG_category.png", full_page=True)
             html = await page.content()
             with open("DEBUG_category.html", "w", encoding="utf-8") as f:
                 f.write(html)
-            log.error("Nenhum produto encontrado. Salvei DEBUG_category.(html/png).")
+            log.error("Salvei DEBUG_category.(html/png). Verifique os arquivos para investigar.")
             await ctx.close(); await browser.close()
             return
 
