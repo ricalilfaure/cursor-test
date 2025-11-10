@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -14,12 +14,10 @@ CATEGORY_URL_TEMPLATE = (
     "&facets=category-1%2Ccategory-2%2Cfuzzy%2Coperator&sort=score_desc&page={page}"
 )
 START_PAGE = 0
-MAX_CATEGORY_PAGES = 6
-PRODUCT_LIMIT = 5
+PAGES_TO_SCAN = 5
 OUTPUT_XLSX = "hm_status.xlsx"
 HEADLESS = False
 LOG_LEVEL = "INFO"
-CATEGORY_URL = CATEGORY_URL_TEMPLATE.format(page=START_PAGE)
 
 # Descoberta de PDPs (ligue/desligue conforme necessidade)
 USE_SHADOW_SCAN = True
@@ -173,7 +171,7 @@ async def _close_overlays(page: Page):
 # ------------------ auto-scroll / load more ------------------
 
 
-async def _auto_scroll(page: Page, max_rounds: int = 60, pause_ms: int = 900):
+async def _auto_scroll(page: Page, max_rounds: int = 60, pause_ms: int = 700):
     prev_h = 0
     stable = 0
     for i in range(max_rounds):
@@ -203,7 +201,7 @@ async def _load_more(page: Page, max_clicks: int = 8):
             if await btn.count() > 0 and await btn.first.is_visible():
                 await btn.first.click()
                 log.info("Clicado em 'Carregar mais'.")
-                await page.wait_for_timeout(1800)
+                await page.wait_for_timeout(1200)
             else:
                 break
         except Exception:
@@ -301,14 +299,17 @@ async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
         return []
 
 
-async def _discover_by_click_in(page_or_frame, limit: int, category_url: str) -> List[str]:
+async def _discover_by_click_in(page_or_frame, limit: Optional[int], category_url: str) -> List[str]:
     urls: List[str] = []
     anchors = page_or_frame.locator(
         "article[data-fs-product-card-custom='true'] [data-carousel-image-container] a[href]"
     )
     count = await anchors.count()
-    for i in range(min(count, limit * 6)):
-        if len(urls) >= limit:
+    max_candidates = count if limit is None else min(count, max(limit * 6, limit + 6))
+    for i in range(max_candidates):
+        if i >= count:
+            break
+        if limit is not None and len(urls) >= limit:
             break
         anchor = anchors.nth(i)
         try:
@@ -342,7 +343,7 @@ async def _discover_by_click_in(page_or_frame, limit: int, category_url: str) ->
     return urls
 
 
-async def discover_pdp_urls(page: Page, limit: int, category_url: str) -> List[str]:
+async def discover_pdp_urls(page: Page, limit: Optional[int], category_url: str) -> List[str]:
     found: List[str] = []
     seen: Set[str] = set()
     seen_keys: Set[str] = set()
@@ -354,7 +355,7 @@ async def discover_pdp_urls(page: Page, limit: int, category_url: str) -> List[s
                 return
             except Exception:
                 continue
-        await page.wait_for_timeout(1_200)
+        await page.wait_for_timeout(700)
 
     await wait_for_candidates()
 
@@ -371,15 +372,20 @@ async def discover_pdp_urls(page: Page, limit: int, category_url: str) -> List[s
                     buf.append(nh)
                     seen.add(nh)
                     seen_keys.add(key)
+                if limit is not None and len(found) + len(buf) >= limit:
+                    break
         if buf:
             log.info("  + %s -> %d URLs", tag, len(buf))
             found.extend(buf)
+
+    def quota_reached() -> bool:
+        return limit is not None and len(found) >= limit
 
     # 1) no documento principal (conteúdo inicial)
     await add_from_ctx(page, "document")
 
     # 2) frames antes de scroll (conteúdo inicial em iframes)
-    if USE_FRAME_SCAN:
+    if USE_FRAME_SCAN and not quota_reached():
         for fr in page.frames:
             if fr == page.main_frame:
                 continue
@@ -392,11 +398,13 @@ async def discover_pdp_urls(page: Page, limit: int, category_url: str) -> List[s
     await _load_more(page)
     await _auto_scroll(page)
     await wait_for_candidates()
+    if quota_reached():
+        return found[:limit] if limit is not None else found
 
     # 4) revarre documento após scroll (novos cards carregados)
     await add_from_ctx(page, "document-scroll")
 
-    if USE_FRAME_SCAN:
+    if USE_FRAME_SCAN and not quota_reached():
         for fr in page.frames:
             if fr == page.main_frame:
                 continue
@@ -406,8 +414,9 @@ async def discover_pdp_urls(page: Page, limit: int, category_url: str) -> List[s
                 continue
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
-    if USE_CLICK_FALLBACK and len(found) < limit:
-        extra = await _discover_by_click_in(page, limit - len(found), category_url)
+    remaining = None if limit is None else max(limit - len(found), 0)
+    if USE_CLICK_FALLBACK and (remaining is None or remaining > 0):
+        extra = await _discover_by_click_in(page, remaining, category_url)
         if extra:
             new = []
             for u in extra:
@@ -421,14 +430,18 @@ async def discover_pdp_urls(page: Page, limit: int, category_url: str) -> List[s
                 log.info("  + click(main) -> %d URLs", len(new))
                 found.extend(new)
 
-    if USE_CLICK_FALLBACK and len(found) < limit:
+    if USE_CLICK_FALLBACK and (limit is None or len(found) < limit):
         for fr in page.frames:
-            if len(found) >= limit:
+            if limit is not None and len(found) >= limit:
                 break
             if fr == page.main_frame:
                 continue
             try:
-                extra = await _discover_by_click_in(fr, limit - len(found), category_url)
+                extra = await _discover_by_click_in(
+                    fr,
+                    None if limit is None else max(limit - len(found), 0),
+                    category_url,
+                )
                 if extra:
                     new = []
                     for u in extra:
@@ -445,7 +458,7 @@ async def discover_pdp_urls(page: Page, limit: int, category_url: str) -> List[s
                 continue
 
     log.info("Links detectados — total:%d", len(found))
-    return found[: limit]
+    return found[:limit] if limit is not None else found
 
 
 # ------------------ PDP -> nome + tamanhos ------------------
@@ -661,33 +674,27 @@ async def main():
         pdp_urls: List[str] = []
         seen_product_keys: Set[str] = set()
 
-        for page_idx in range(START_PAGE, START_PAGE + MAX_CATEGORY_PAGES):
-            if len(pdp_urls) >= PRODUCT_LIMIT:
-                break
-
+        for offset in range(PAGES_TO_SCAN):
+            page_idx = START_PAGE + offset
             category_url = CATEGORY_URL_TEMPLATE.format(page=page_idx)
             log.info(
                 "Abrindo categoria (página %d/%d): %s",
-                page_idx,
-                START_PAGE + MAX_CATEGORY_PAGES - 1,
+                offset + 1,
+                PAGES_TO_SCAN,
                 category_url,
             )
             try:
                 await page.goto(category_url, wait_until="domcontentloaded")
             except PWTimeout:
-                log.warning("Timeout no goto da categoria (página %d); seguindo.", page_idx)
+                log.warning("Timeout no goto da categoria (página %d); seguindo.", offset + 1)
                 continue
 
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(600)
             await _maybe_accept_cookies(page)
             await _close_overlays(page)
 
-            restante = PRODUCT_LIMIT - len(pdp_urls)
-            if restante <= 0:
-                break
-
-            log.info("Fazendo scroll e coletando produtos (restante=%d)...", restante)
-            novos = await discover_pdp_urls(page, restante, category_url)
+            log.info("Fazendo scroll e coletando produtos da página...")
+            novos = await discover_pdp_urls(page, None, category_url)
 
             filtrados = []
             for url in novos:
@@ -717,8 +724,8 @@ async def main():
             return
 
         items: List[Tuple[str, Dict[str, str]]] = []
-        for i, url in enumerate(pdp_urls[:PRODUCT_LIMIT], 1):
-            log.info("[%d/%d] Abrindo PDP…", i, min(PRODUCT_LIMIT, len(pdp_urls)))
+        for i, url in enumerate(pdp_urls, 1):
+            log.info("[%d/%d] Abrindo PDP…", i, len(pdp_urls))
             try:
                 await page.goto(url, wait_until="domcontentloaded")
             except PWTimeout:
@@ -727,7 +734,7 @@ async def main():
                 await page.wait_for_load_state("networkidle", timeout=10_000)
             except Exception:
                 pass
-            await page.wait_for_timeout(1200)
+            await page.wait_for_timeout(600)
             await _maybe_accept_cookies(page)
             await _close_overlays(page)
 
