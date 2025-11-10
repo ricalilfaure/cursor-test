@@ -301,7 +301,7 @@ async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
         return []
 
 
-async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
+async def _discover_by_click_in(page_or_frame, limit: int, category_url: str) -> List[str]:
     urls: List[str] = []
     anchors = page_or_frame.locator(
         "article[data-fs-product-card-custom='true'] [data-carousel-image-container] a[href]"
@@ -334,7 +334,7 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
             try:
                 await page_or_frame.page.go_back(wait_until="domcontentloaded", timeout=15000)
             except Exception:
-                await robust_goto(page_or_frame.page, CATEGORY_URL)
+                await robust_goto(page_or_frame.page, category_url)
                 await _maybe_accept_cookies(page_or_frame.page)
                 await _close_overlays(page_or_frame.page)
         except Exception:
@@ -342,7 +342,7 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
     return urls
 
 
-async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
+async def discover_pdp_urls(page: Page, limit: int, category_url: str) -> List[str]:
     found: List[str] = []
     seen: Set[str] = set()
     seen_keys: Set[str] = set()
@@ -407,7 +407,7 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
     if USE_CLICK_FALLBACK and len(found) < limit:
-        extra = await _discover_by_click_in(page, limit - len(found))
+        extra = await _discover_by_click_in(page, limit - len(found), category_url)
         if extra:
             new = []
             for u in extra:
@@ -428,7 +428,7 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             if fr == page.main_frame:
                 continue
             try:
-                extra = await _discover_by_click_in(fr, limit - len(found))
+                extra = await _discover_by_click_in(fr, limit - len(found), category_url)
                 if extra:
                     new = []
                     for u in extra:
@@ -646,7 +646,6 @@ def build_excel(items: List[Tuple[str, Dict[str, str]]]) -> pd.DataFrame:
 
 
 async def main():
-    log.info("Abrindo categoria: %s", CATEGORY_URL)
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=HEADLESS)
         ctx = await browser.new_context(
@@ -659,20 +658,53 @@ async def main():
 
         page = await ctx.new_page()
 
-        try:
-            await page.goto(CATEGORY_URL, wait_until="domcontentloaded")
-        except PWTimeout:
-            log.warning("Timeout no goto da categoria; seguindo.")
+        pdp_urls: List[str] = []
+        seen_product_keys: Set[str] = set()
 
-        await page.wait_for_timeout(1500)
-        await _maybe_accept_cookies(page)
-        await _close_overlays(page)
+        for page_idx in range(START_PAGE, START_PAGE + MAX_CATEGORY_PAGES):
+            if len(pdp_urls) >= PRODUCT_LIMIT:
+                break
 
-        log.info("Fazendo scroll e coletando produtos (limite=%d)...", PRODUCT_LIMIT)
-        pdp_urls = await discover_pdp_urls(page, PRODUCT_LIMIT)
-        log.info("Total de PDPs detectadas: %d", len(pdp_urls))
-        for i, u in enumerate(pdp_urls, 1):
-            log.info("  [%d] %s", i, u)
+            category_url = CATEGORY_URL_TEMPLATE.format(page=page_idx)
+            log.info(
+                "Abrindo categoria (página %d/%d): %s",
+                page_idx,
+                START_PAGE + MAX_CATEGORY_PAGES - 1,
+                category_url,
+            )
+            try:
+                await page.goto(category_url, wait_until="domcontentloaded")
+            except PWTimeout:
+                log.warning("Timeout no goto da categoria (página %d); seguindo.", page_idx)
+                continue
+
+            await page.wait_for_timeout(1500)
+            await _maybe_accept_cookies(page)
+            await _close_overlays(page)
+
+            restante = PRODUCT_LIMIT - len(pdp_urls)
+            if restante <= 0:
+                break
+
+            log.info("Fazendo scroll e coletando produtos (restante=%d)...", restante)
+            novos = await discover_pdp_urls(page, restante, category_url)
+
+            filtrados = []
+            for url in novos:
+                key = _product_key(url)
+                if key in seen_product_keys:
+                    continue
+                seen_product_keys.add(key)
+                filtrados.append(url)
+
+            if filtrados:
+                pdp_urls.extend(filtrados)
+                for i, u in enumerate(filtrados, len(pdp_urls) - len(filtrados) + 1):
+                    log.info("  [%d] %s", i, u)
+            else:
+                log.info("Nenhum novo produto único encontrado nesta página.")
+
+        log.info("Total de PDPs únicas detectadas: %d", len(pdp_urls))
 
         if not pdp_urls:
             await page.screenshot(path="DEBUG_category.png", full_page=True)
