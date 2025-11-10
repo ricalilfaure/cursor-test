@@ -194,7 +194,7 @@ async def _load_more_button(page: Page) -> None:
 async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     """Descobre URLs de produtos de forma otimizada"""
     # Passo 1: Load more + scroll
-    await _load_more_button()
+    await _load_more_button(page)
     await _smart_scroll(page)
     
     # Passo 2: Extrai URLs via JS otimizado
