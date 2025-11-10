@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 from typing import Dict, List, Set, Tuple
+from urllib.parse import urlparse
 
 import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout, Page
@@ -109,6 +110,22 @@ def _normalize_href(href: str) -> str:
     if not href.startswith("http"):
         return HM_BASE.rstrip("/") + "/" + href.lstrip("/")
     return href
+
+
+def _product_key(url: str) -> str:
+    try:
+        path = urlparse(url).path
+    except Exception:
+        path = url
+    if not path:
+        return url
+    path = path.split("?", 1)[0]
+    digits = re.findall(r"\d{6,}", path)
+    if digits:
+        return digits[0]
+    slug = path.rstrip("/").split("/")[-1]
+    slug = slug.split(".", 1)[0]
+    return slug or url
 
 
 async def robust_goto(page: Page, url: str):
@@ -320,6 +337,7 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
 async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     found: List[str] = []
     seen: Set[str] = set()
+    seen_keys: Set[str] = set()
 
     async def wait_for_candidates():
         for sel in PRODUCT_HINT_SELECTORS:
@@ -333,15 +351,18 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     await wait_for_candidates()
 
     async def add_from_ctx(ctx, tag: str):
-        nonlocal found, seen
+        nonlocal found, seen, seen_keys
         got = await _collect_pdp_urls_in(ctx)
         # normaliza e agrega
         buf = []
         for h in got:
             nh = _normalize_href(h)
-            if PDP_URL_RE.search(nh) and nh not in seen:
-                buf.append(nh)
-                seen.add(nh)
+            if PDP_URL_RE.search(nh):
+                key = _product_key(nh)
+                if nh not in seen and key not in seen_keys:
+                    buf.append(nh)
+                    seen.add(nh)
+                    seen_keys.add(key)
         if buf:
             log.info("  + %s -> %d URLs", tag, len(buf))
             found.extend(buf)
@@ -380,11 +401,17 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     if USE_CLICK_FALLBACK and len(found) < limit:
         extra = await _discover_by_click_in(page, limit - len(found))
         if extra:
-            new = [u for u in extra if u not in seen]
+            new = []
+            for u in extra:
+                key = _product_key(u)
+                if key in seen_keys:
+                    continue
+                new.append(u)
+                seen_keys.add(key)
+                seen.add(u)
             if new:
                 log.info("  + click(main) -> %d URLs", len(new))
                 found.extend(new)
-                seen.update(new)
 
     if USE_CLICK_FALLBACK and len(found) < limit:
         for fr in page.frames:
@@ -395,11 +422,17 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             try:
                 extra = await _discover_by_click_in(fr, limit - len(found))
                 if extra:
-                    new = [u for u in extra if u not in seen]
+                    new = []
+                    for u in extra:
+                        key = _product_key(u)
+                        if key in seen_keys:
+                            continue
+                        new.append(u)
+                        seen_keys.add(key)
+                        seen.add(u)
                     if new:
                         log.info("  + click(frame) -> %d URLs", len(new))
                         found.extend(new)
-                        seen.update(new)
             except Exception:
                 continue
 
