@@ -29,7 +29,7 @@ LOG_LEVEL     = "INFO"
 # Descoberta de PDPs (ligue/desligue conforme necessidade)
 USE_SHADOW_SCAN   = True
 USE_FRAME_SCAN    = True
-USE_CLICK_FALLBACK= True
+USE_CLICK_FALLBACK= False  # Desabilitado por padrão para evitar navegações indesejadas
 
 # Timeouts
 NAV_TIMEOUT_MS  = 90_000
@@ -403,6 +403,34 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
             continue
     return urls
 
+async def _ensure_on_category_page(page: Page) -> bool:
+    """Garante que estamos na página de categoria correta. Retorna True se está correta."""
+    category_base = CATEGORY_URL.split('?')[0]
+    current_url = page.url
+    
+    # Verificar se está na categoria ou em um PDP
+    is_category = category_base in current_url
+    is_pdp = PDP_URL_RE.search(current_url)
+    
+    if not is_category and not is_pdp:
+        log.warning("URL incorreta detectada. Esperado: %s | Atual: %s", category_base, current_url)
+        try:
+            await robust_goto(page, CATEGORY_URL)
+            await page.wait_for_timeout(1500)
+            await _maybe_accept_cookies(page)
+            await _close_overlays(page)
+            # Verificar novamente
+            new_url = page.url
+            if category_base not in new_url:
+                log.error("Falha ao retornar para categoria. URL atual: %s", new_url)
+                return False
+            return True
+        except Exception as e:
+            log.error("Erro ao tentar voltar para categoria: %s", e)
+            return False
+    
+    return True
+
 async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     # Otimização: usar set para deduplicação mais eficiente
     found: List[str] = []
@@ -419,7 +447,8 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
         for h in got:
             nh = _normalize_href(h)
             # Filtrar links de navegação (homem, casa, etc.)
-            if '/homem' in nh or '/casa' in nh or '/masculino' in nh:
+            nh_lower = nh.lower()
+            if any(x in nh_lower for x in ['/homem', '/casa', '/masculino']):
                 continue
             if PDP_URL_RE.search(nh) and nh not in seen:
                 seen.add(nh)
@@ -428,17 +457,17 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             log.info("  + %s -> %d URLs", tag, len(buf))
             found.extend(buf)
 
-    # CORREÇÃO: Verificar se estamos na URL correta antes de começar
-    current_url = page.url
-    if category_base not in current_url:
-        log.warning("URL atual não corresponde à categoria. Recarregando: %s", current_url)
-        await robust_goto(page, CATEGORY_URL)
-        await page.wait_for_timeout(1000)
-        await _maybe_accept_cookies(page)
-        await _close_overlays(page)
+    # CORREÇÃO: Verificar e garantir que estamos na URL correta antes de começar
+    if not await _ensure_on_category_page(page):
+        log.error("Não foi possível garantir que estamos na página de categoria. Abortando descoberta.")
+        return []
 
     # 1) no documento principal
     await add_from_ctx(page, "document")
+    
+    # Verificar URL após primeira coleta
+    if not await _ensure_on_category_page(page):
+        log.warning("URL mudou após coleta inicial. Tentando continuar...")
 
     # 2) shadow/atributos/anchors varridos pelo JS (já incluso no passo 1)
     # 3) frames (se existirem)
@@ -450,40 +479,38 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             except Exception:
                 continue
 
-    # CORREÇÃO: Verificar URL após scroll e load_more
-    await _load_more(page)
-    current_url = page.url
-    if category_base not in current_url and not PDP_URL_RE.search(current_url):
-        log.warning("Navegação inesperada após load_more. Voltando para categoria.")
-        await robust_goto(page, CATEGORY_URL)
-        await page.wait_for_timeout(1000)
-        await _maybe_accept_cookies(page)
-        await _close_overlays(page)
+    # CORREÇÃO: Verificar URL antes de load_more
+    if not await _ensure_on_category_page(page):
+        log.warning("URL incorreta antes de load_more. Pulando...")
+    else:
+        await _load_more(page)
+        # Verificar URL após load_more
+        if not await _ensure_on_category_page(page):
+            log.warning("URL mudou após load_more.")
     
-    await _auto_scroll(page)
-    current_url = page.url
-    if category_base not in current_url and not PDP_URL_RE.search(current_url):
-        log.warning("Navegação inesperada após scroll. Voltando para categoria.")
-        await robust_goto(page, CATEGORY_URL)
-        await page.wait_for_timeout(1000)
-        await _maybe_accept_cookies(page)
-        await _close_overlays(page)
+    # Verificar URL antes de scroll
+    if not await _ensure_on_category_page(page):
+        log.warning("URL incorreta antes de scroll. Pulando...")
+    else:
+        await _auto_scroll(page)
+        # Verificar URL após scroll
+        if not await _ensure_on_category_page(page):
+            log.warning("URL mudou após scroll.")
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
+    # NOTA: Click fallback está desabilitado por padrão para evitar navegações indesejadas
     if USE_CLICK_FALLBACK and len(found) < limit:
+        log.info("Usando método de clique para encontrar mais produtos...")
         # CORREÇÃO: Verificar URL antes de cliques
-        current_url = page.url
-        if category_base not in current_url:
-            log.warning("URL incorreta antes de cliques. Recarregando categoria.")
-            await robust_goto(page, CATEGORY_URL)
-            await page.wait_for_timeout(1000)
-            await _maybe_accept_cookies(page)
-            await _close_overlays(page)
-        
-        extra = await _discover_by_click_in(page, limit - len(found))
-        if extra:
-            log.info("  + click(main) -> %d URLs", len(extra))
-            found.extend(extra)
+        if not await _ensure_on_category_page(page):
+            log.error("URL incorreta antes de cliques. Abortando método de clique.")
+        else:
+            extra = await _discover_by_click_in(page, limit - len(found))
+            if extra:
+                log.info("  + click(main) -> %d URLs", len(extra))
+                found.extend(extra)
+                # Verificar URL após cliques
+                await _ensure_on_category_page(page)
 
     if USE_CLICK_FALLBACK and len(found) < limit:
         frames = [fr for fr in page.frames if fr != page.main_frame]
@@ -735,31 +762,25 @@ async def main():
         except PWTimeout:
             log.warning("Timeout no goto da categoria; seguindo.")
 
-        # CORREÇÃO: Verificar se realmente carregou a URL correta
-        await page.wait_for_timeout(1000)
-        current_url = page.url
-        category_base = CATEGORY_URL.split('?')[0]
-        if category_base not in current_url:
-            log.warning("URL após goto não corresponde à categoria esperada. Tentando novamente...")
-            log.warning("  Esperado: %s", category_base)
-            log.warning("  Obtido: %s", current_url)
-            try:
-                await page.goto(CATEGORY_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-                await page.wait_for_timeout(1500)
-            except Exception as e:
-                log.error("Erro ao recarregar categoria: %s", e)
+        # CORREÇÃO: Verificar se realmente carregou a URL correta usando função dedicada
+        await page.wait_for_timeout(1500)
+        if not await _ensure_on_category_page(page):
+            log.error("Não foi possível carregar a página de categoria correta. Abortando.")
+            await ctx.close()
+            await browser.close()
+            return
         
         await _maybe_accept_cookies(page)
         await _close_overlays(page)
         
         # CORREÇÃO: Verificar URL final após cookies/overlays
-        final_url = page.url
-        if category_base not in final_url:
-            log.warning("URL mudou após cookies/overlays. Recarregando categoria: %s", final_url)
-            await robust_goto(page, CATEGORY_URL)
-            await page.wait_for_timeout(1000)
-            await _maybe_accept_cookies(page)
-            await _close_overlays(page)
+        if not await _ensure_on_category_page(page):
+            log.warning("URL mudou após cookies/overlays. Tentando corrigir...")
+            if not await _ensure_on_category_page(page):
+                log.error("Não foi possível manter na página de categoria. Abortando.")
+                await ctx.close()
+                await browser.close()
+                return
 
         log.info("Fazendo scroll e coletando produtos (limite=%d)...", PRODUCT_LIMIT)
         pdp_urls = await discover_pdp_urls(page, PRODUCT_LIMIT)
