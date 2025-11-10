@@ -15,7 +15,7 @@ CATEGORY_URL_TEMPLATE = (
 )
 START_PAGE = 0
 PAGES_TO_SCAN = 5
-PAGE_RETRIES = 3
+PAGE_RETRIES = 5
 OUTPUT_XLSX = "hm_status.xlsx"
 HEADLESS = False
 LOG_LEVEL = "INFO"
@@ -349,10 +349,16 @@ async def _collect_card_urls(page_or_frame) -> List[str]:
 async def _ensure_cards_loaded(page: Page, category_url: str, page_number: int) -> bool:
     for attempt in range(1, PAGE_RETRIES + 1):
         try:
-            await page.wait_for_selector(CARD_SELECTOR, timeout=10_000)
+            await page.wait_for_selector(CARD_SELECTOR, timeout=20_000)
             count = await page.locator(CARD_SELECTOR).count()
             if count > 0:
                 return True
+            log.warning(
+                "Cards ainda não visíveis na página %d (tentativa %d/%d); aguardando mais.",
+                page_number,
+                attempt,
+                PAGE_RETRIES,
+            )
         except Exception as exc:
             log.warning(
                 "Ainda sem cards visíveis na página %d (tentativa %d/%d): %s",
@@ -361,7 +367,7 @@ async def _ensure_cards_loaded(page: Page, category_url: str, page_number: int) 
                 PAGE_RETRIES,
                 exc,
             )
-        await page.wait_for_timeout(3_000)
+        await page.wait_for_timeout(5_000)
     return False
 
 
@@ -774,12 +780,12 @@ async def main():
             except PWTimeout:
                 log.warning("Timeout inicial ao carregar página %d; aguardando mais tempo.", offset + 1)
             try:
-                await page.wait_for_load_state("networkidle", timeout=45_000)
+                await page.wait_for_load_state("networkidle", timeout=60_000)
             except Exception:
                 log.warning("Estado 'networkidle' não atingido na página %d; seguindo mesmo assim.", offset + 1)
-            await page.wait_for_timeout(1_500)
+            await page.wait_for_timeout(2_500)
 
-            await page.wait_for_timeout(600)
+            await page.wait_for_timeout(1_200)
             await _maybe_accept_cookies(page)
             await _close_overlays(page)
 
