@@ -271,30 +271,23 @@ async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
 
 async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
     urls: List[str] = []
-    candidates = page_or_frame.locator(
-        "[data-testid*=\"product\"], [class*=\"product-card\"], [class*=\"ProductCard\"], "
-        'article, li, a[role], div[role="link"]'
-    )
-    count = await candidates.count()
-    for i in range(min(count, limit * 4)):
+    anchors = page_or_frame.locator("a[href]")
+    count = await anchors.count()
+    for i in range(min(count, limit * 6)):
         if len(urls) >= limit:
             break
-        el = candidates.nth(i)
+        anchor = anchors.nth(i)
         try:
-            await el.scroll_into_view_if_needed()
-            clicked = False
-            for sel in ["a", "button", "img", "*"]:
-                try:
-                    target = el.locator(sel).first if sel != "*" else el
-                    await target.click(timeout=3000, force=True)
-                    clicked = True
-                    break
-                except Exception:
-                    continue
-            if not clicked:
+            href = await anchor.get_attribute("href")
+            if not href:
+                continue
+            norm = _normalize_href(href)
+            if not PDP_URL_RE.search(norm):
                 continue
 
-            # espera SPA mudar para PDP
+            await anchor.scroll_into_view_if_needed()
+            await anchor.click(timeout=4000, force=True)
+
             try:
                 await page_or_frame.page.wait_for_url(PDP_URL_RE, timeout=8000)
             except Exception:
@@ -304,11 +297,9 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
             if PDP_URL_RE.search(u) and u not in urls:
                 urls.append(u)
 
-            # volta para a categoria
             try:
                 await page_or_frame.page.go_back(wait_until="domcontentloaded", timeout=15000)
             except Exception:
-                # recarrega categoria se necessário
                 await robust_goto(page_or_frame.page, CATEGORY_URL)
                 await _maybe_accept_cookies(page_or_frame.page)
                 await _close_overlays(page_or_frame.page)
