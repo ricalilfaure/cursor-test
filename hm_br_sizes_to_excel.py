@@ -87,6 +87,8 @@ PRODUCT_HINT_SELECTORS = [
     "[data-product-url]",
     "[data-href*='/produto']",
     "[data-href*='/product']",
+    "article[data-fs-product-card-custom='true']",
+    "article[data-fs-product-card-custom='true'] a[href]",
 ]
 
 
@@ -689,6 +691,11 @@ async def main():
                 log.warning("Timeout no goto da categoria (página %d); seguindo.", offset + 1)
                 continue
 
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15_000)
+            except Exception:
+                pass
+
             await page.wait_for_timeout(600)
             await _maybe_accept_cookies(page)
             await _close_overlays(page)
@@ -710,6 +717,15 @@ async def main():
                     log.info("  [%d] %s", i, u)
             else:
                 log.info("Nenhum novo produto único encontrado nesta página.")
+                try:
+                    debug_prefix = f"DEBUG_category_p{page_idx}"
+                    await page.screenshot(path=f"{debug_prefix}.png", full_page=True)
+                    html = await page.content()
+                    with open(f"{debug_prefix}.html", "w", encoding="utf-8") as f:
+                        f.write(html)
+                    log.info("  → Salvos %s.(html/png) para inspeção.", debug_prefix)
+                except Exception as exc:
+                    log.warning("  → Falha ao salvar debug da página %d: %s", offset + 1, exc)
 
         log.info("Total de PDPs únicas detectadas: %d", len(pdp_urls))
 
