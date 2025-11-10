@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import re
 from typing import Dict, List, Tuple
@@ -31,7 +32,7 @@ HM_BASE = "https://www.hm.com.br"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
 
-PDP_URL_RE = re.compile(r"/(p|produto|product)/", re.I)
+PDP_URL_RE = re.compile(r"/(?:p|produto|product)(?:/|$)", re.I)
 
 LABEL_SOLDOUT = "Esgotado"
 LABEL_LOW = "Poucas unidades"
@@ -306,6 +307,54 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     found: List[str] = []
     found_set = set()
 
+    async def add_from_next_data():
+        try:
+            raw = await page.evaluate("window.__NEXT_DATA__ ? JSON.stringify(window.__NEXT_DATA__) : null")
+        except Exception:
+            return 0
+        if not raw:
+            return 0
+        added = 0
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return 0
+        search = (
+            data.get("props", {})
+            .get("pageProps", {})
+            .get("data", {})
+            .get("search", {})
+        )
+        edges = search.get("products", {}).get("edges", []) if isinstance(search, dict) else []
+        for edge in edges:
+            node = edge.get("node") if isinstance(edge, dict) else None
+            if not node:
+                continue
+            link = None
+            variations = node.get("colorVariations")
+            if isinstance(variations, list):
+                for var in variations:
+                    if isinstance(var, dict):
+                        link = var.get("linkText") or var.get("link") or var.get("href")
+                    if link:
+                        break
+            if not link:
+                slug = node.get("slug")
+                if slug:
+                    link = f"/produto/{slug}"
+            if not link:
+                continue
+            nh = _normalize_href(link)
+            if PDP_URL_RE.search(nh) and nh not in found_set:
+                found_set.add(nh)
+                found.append(nh)
+                added += 1
+            if len(found) >= limit:
+                break
+        if added:
+            log.info("  + next-data -> %d URLs", added)
+        return added
+
     async def add_from_ctx(ctx, tag: str):
         nonlocal found, found_set
         got = await _collect_pdp_urls_in(ctx)
@@ -318,6 +367,10 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
                 added += 1
         if added:
             log.info("  + %s -> %d URLs", tag, added)
+
+    # 0) Tenta JSON de hidratação (mais confiável)
+    if await add_from_next_data() >= limit:
+        return found[:limit]
 
     # 1) no documento principal
     await add_from_ctx(page, "document")
