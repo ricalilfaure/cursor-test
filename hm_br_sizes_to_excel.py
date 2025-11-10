@@ -511,11 +511,15 @@ PARSE_SIZES_JS = r"""
 
     const disabledAttr = el.getAttribute("data-fs-sku-selector-disabled");
     const stockStatus = (el.getAttribute("data-fs-stock-status") || "").toLowerCase();
+    const lowAttr = el.getAttribute("data-fs-sku-selector-low-stock") === "true";
+    const lowClosest = !!el.closest('[data-fs-sku-selector-low-stock="true"]');
+    const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+    const titleAttr = (el.getAttribute("title") || "").toLowerCase();
     const disabled = disabledAttr === "true" || !!el.disabled || el.getAttribute("aria-disabled") === "true" || getComputedStyle(el).pointerEvents === "none";
-    const meta = ((el.className||"") + " " + (el.getAttribute("aria-label")||"") + " " + (el.getAttribute("title")||"") + " " + stockStatus).toLowerCase();
+    const meta = ((el.className||"") + " " + aria + " " + titleAttr + " " + stockStatus).toLowerCase();
     const sold = disabled || hasLineThrough(el) || /(soldout|sold-out|out-of-stock|unavailable|esgotad)/.test(meta);
-    const lowStockFlag = stockStatus.includes("low");
-    const low  = !sold && (lowStockFlag || hasRedIndicator(el)); // dot vermelho ou atributo low-stock
+    const lowStockFlag = stockStatus.includes("low") || lowAttr || lowClosest || aria.includes("poucas") || titleAttr.includes("poucas");
+    const low  = !sold && (lowStockFlag || hasRedIndicator(el)); // dot vermelho, atributo low-stock ou label associado
 
     const status = sold ? "Esgotado" : (low ? "Poucas unidades" : "Disponível");
 
