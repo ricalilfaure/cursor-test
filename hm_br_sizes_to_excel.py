@@ -711,10 +711,13 @@ async def main():
                 seen_product_keys.add(key)
                 filtrados.append(url)
 
-            if filtrados:
+            total_pagina = len(filtrados)
+            if total_pagina:
                 pdp_urls.extend(filtrados)
-                for i, u in enumerate(filtrados, len(pdp_urls) - len(filtrados) + 1):
-                    log.info("  [%d] %s", i, u)
+                base_idx = len(pdp_urls) - total_pagina + 1
+                for idx, u in enumerate(filtrados, base_idx):
+                    log.info("  [%d] %s", idx, u)
+                log.info("Página %d: %d produtos novos coletados (total acumulado=%d).", offset + 1, total_pagina, len(pdp_urls))
             else:
                 log.info("Nenhum novo produto único encontrado nesta página.")
                 try:
@@ -761,6 +764,7 @@ async def main():
                 ", ".join(f"{k}:{v}" for k, v in sorted(sizes.items())),
             )
             items.append((name, sizes))
+            log.info("Produto analisado (%d/%d): %s", i, len(pdp_urls), name)
 
         await ctx.close()
         await browser.close()
