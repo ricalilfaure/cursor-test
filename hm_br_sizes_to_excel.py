@@ -33,7 +33,7 @@ UA = (
     "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
 
-PDP_URL_RE = re.compile(r"/(p|produto|product)/", re.I)
+PDP_URL_RE = re.compile(r"/(?:p\b|produto\b|product\b|productpage\b)", re.I)
 
 LABEL_SOLDOUT = "Esgotado"
 LABEL_LOW = "Poucas unidades"
@@ -76,6 +76,15 @@ OVERLAY_SELECTORS = [
     "button:has-text('Close')",
     "[data-testid='modal-close']",
     "button[aria-label*='close' i]",
+]
+
+PRODUCT_HINT_SELECTORS = [
+    "a[href*='/produto']",
+    "a[href*='/productpage']",
+    "a[href*='/product/']",
+    "[data-product-url]",
+    "[data-href*='/produto']",
+    "[data-href*='/product']",
 ]
 
 
@@ -190,7 +199,7 @@ DISCOVERY_JS = r"""
   //  - atributos: data-href, data-url, data-product-url, data-link, onclick (com URL)
   //  - JSON-LD com url para produto
   const out = new Set();
-  const PDP = /\/(p|produto|product)\//i;
+  const PDP = /\/(p\b|produto\b|product\b|productpage\b)/i;
 
   const extractFromRoot = (root) => {
     try {
@@ -312,6 +321,17 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     found: List[str] = []
     seen: Set[str] = set()
 
+    async def wait_for_candidates():
+        for sel in PRODUCT_HINT_SELECTORS:
+            try:
+                await page.wait_for_selector(sel, timeout=6_000)
+                return
+            except Exception:
+                continue
+        await page.wait_for_timeout(1_200)
+
+    await wait_for_candidates()
+
     async def add_from_ctx(ctx, tag: str):
         nonlocal found, seen
         got = await _collect_pdp_urls_in(ctx)
@@ -342,6 +362,7 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     # 3) aciona carregamento incremental
     await _load_more(page)
     await _auto_scroll(page)
+    await wait_for_candidates()
 
     # 4) revarre documento após scroll (novos cards carregados)
     await add_from_ctx(page, "document-scroll")
