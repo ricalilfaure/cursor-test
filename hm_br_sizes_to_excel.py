@@ -1,10 +1,10 @@
 import asyncio
 import logging
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 import pandas as pd
-from playwright.async_api import async_playwright, TimeoutError as PWTimeout, Page, Frame
+from playwright.async_api import async_playwright, TimeoutError as PWTimeout, Page
 
 # ======= CONFIG =======
 CATEGORY_URL = (
@@ -61,6 +61,23 @@ logging.basicConfig(
 )
 log = logging.getLogger("hm")
 
+COOKIE_SELECTORS = [
+    "#onetrust-accept-btn-handler",
+    "button#onetrust-accept-btn-handler",
+    "button:has-text('Aceitar todos')",
+    "button:has-text('Aceitar')",
+    "button:has-text('Accept all')",
+    "button:has-text('Accept')",
+]
+
+OVERLAY_SELECTORS = [
+    "button[aria-label='Fechar']",
+    "button:has-text('Fechar')",
+    "button:has-text('Close')",
+    "[data-testid='modal-close']",
+    "button[aria-label*='close' i]",
+]
+
 
 # ---------------------- utils ----------------------
 
@@ -100,14 +117,7 @@ async def robust_goto(page: Page, url: str):
 
 
 async def _maybe_accept_cookies(page: Page):
-    for sel in [
-        "#onetrust-accept-btn-handler",
-        "button#onetrust-accept-btn-handler",
-        "button:has-text('Aceitar todos')",
-        "button:has-text('Aceitar')",
-        "button:has-text('Accept all')",
-        "button:has-text('Accept')",
-    ]:
+    for sel in COOKIE_SELECTORS:
         try:
             btn = page.locator(sel)
             if await btn.count() > 0:
@@ -120,13 +130,7 @@ async def _maybe_accept_cookies(page: Page):
 
 
 async def _close_overlays(page: Page):
-    for sel in [
-        "button[aria-label='Fechar']",
-        "button:has-text('Fechar')",
-        "button:has-text('Close')",
-        "[data-testid='modal-close']",
-        "button[aria-label*='close' i]",
-    ]:
+    for sel in OVERLAY_SELECTORS:
         try:
             el = page.locator(sel)
             if await el.count() > 0:
@@ -249,15 +253,17 @@ async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
     try:
         urls = await page_or_frame.evaluate(DISCOVERY_JS)
         # normaliza e filtra
-        uniq = []
+        uniq: List[str] = []
+        seen: Set[str] = set()
         for u in urls:
             if not u:
                 continue
             if not PDP_URL_RE.search(u):
                 continue
             # normalização simples (sem resolver URL relativa aqui; faremos em Python)
-            if u not in uniq:
+            if u not in seen:
                 uniq.append(u)
+                seen.add(u)
         return uniq
     except Exception:
         return []
@@ -313,16 +319,18 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
 
 async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     found: List[str] = []
+    seen: Set[str] = set()
 
     async def add_from_ctx(ctx, tag: str):
-        nonlocal found
+        nonlocal found, seen
         got = await _collect_pdp_urls_in(ctx)
         # normaliza e agrega
         buf = []
         for h in got:
             nh = _normalize_href(h)
-            if PDP_URL_RE.search(nh) and nh not in found and nh not in buf:
+            if PDP_URL_RE.search(nh) and nh not in seen:
                 buf.append(nh)
+                seen.add(nh)
         if buf:
             log.info("  + %s -> %d URLs", tag, len(buf))
             found.extend(buf)
@@ -348,8 +356,11 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     if USE_CLICK_FALLBACK and len(found) < limit:
         extra = await _discover_by_click_in(page, limit - len(found))
         if extra:
-            log.info("  + click(main) -> %d URLs", len(extra))
-            found.extend(extra)
+            new = [u for u in extra if u not in seen]
+            if new:
+                log.info("  + click(main) -> %d URLs", len(new))
+                found.extend(new)
+                seen.update(new)
 
     if USE_CLICK_FALLBACK and len(found) < limit:
         for fr in page.frames:
@@ -360,8 +371,11 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             try:
                 extra = await _discover_by_click_in(fr, limit - len(found))
                 if extra:
-                    log.info("  + click(frame) -> %d URLs", len(extra))
-                    found.extend(extra)
+                    new = [u for u in extra if u not in seen]
+                    if new:
+                        log.info("  + click(frame) -> %d URLs", len(new))
+                        found.extend(new)
+                        seen.update(new)
             except Exception:
                 continue
 
@@ -372,29 +386,7 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
 # ------------------ PDP -> nome + tamanhos ------------------
 
 
-async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
-    """Extrai (nome, {tamanho: status}) — família única (letras OU pares 32–52),
-    'Poucas' somente com dot vermelho no próprio botão; 'Esgotado' por disabled/risco."""
-    # 1) Nome
-    name = ""
-    for sel in ["h1", 'meta[property="og:title"]', "title"]:
-        try:
-            loc = page.locator(sel)
-            if await loc.count() > 0:
-                if sel.startswith("meta"):
-                    v = await loc.first.get_attribute("content")
-                else:
-                    v = await loc.first.inner_text()
-                if v and v.strip():
-                    name = v.strip()
-                    break
-        except Exception:
-            pass
-    if not name:
-        name = "Produto H&M"
-
-    # 2) JS no contexto da página: coleta botões, determina status, separa por família
-    js = r"""
+PARSE_SIZES_JS = r"""
 (() => {
   const LETTERS = new Set(["XXP","XP","PP","P","M","G","GG","XG","XXG","XXGG","XXGGG"]);
   const NUMERIC = new Set(["32","34","36","38","40","42","44","46","48","50","52"]);
@@ -514,8 +506,32 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
   return bestMap;
 })()
 """
+
+
+async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
+    """Extrai (nome, {tamanho: status}) — família única (letras OU pares 32–52),
+    'Poucas' somente com dot vermelho no próprio botão; 'Esgotado' por disabled/risco."""
+    # 1) Nome
+    name = ""
+    for sel in ["h1", 'meta[property="og:title"]', "title"]:
+        try:
+            loc = page.locator(sel)
+            if await loc.count() > 0:
+                if sel.startswith("meta"):
+                    v = await loc.first.get_attribute("content")
+                else:
+                    v = await loc.first.inner_text()
+                if v and v.strip():
+                    name = v.strip()
+                    break
+        except Exception:
+            pass
+    if not name:
+        name = "Produto H&M"
+
+    # 2) JS no contexto da página: coleta botões, determina status, separa por família
     try:
-        data = await page.evaluate(js)
+        data = await page.evaluate(PARSE_SIZES_JS)
     except Exception:
         data = {}
 
@@ -532,12 +548,14 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
 
 
 def build_excel(items: List[Tuple[str, Dict[str, str]]]) -> pd.DataFrame:
-    all_sizes: List[str] = []
-    for _, mp in items:
-        all_sizes.extend(list(mp.keys()))
+    all_sizes = {
+        size
+        for _, mp in items
+        for size in mp.keys()
+    }
     all_sizes = [
         s
-        for s in set(all_sizes)
+        for s in all_sizes
         if (s.isalpha() and s in LETTER_SIZES) or (s.isdigit() and s in NUMERIC_ALLOWED)
     ]
     size_cols = _order_sizes(all_sizes)
