@@ -58,21 +58,37 @@ log = logging.getLogger("hm")
 
 # ---------------------- utils ----------------------
 
+# Cache para ordenação de tamanhos
+_LETTER_SIZES_DICT = {size: idx for idx, size in enumerate(LETTER_SIZES)}
+
 def _order_sizes(all_sizes: List[str]) -> List[str]:
-    letters = [s for s in all_sizes if s.isalpha()]
-    nums    = [s for s in all_sizes if s.isdigit()]
-    other   = [s for s in all_sizes if s not in letters and s not in nums]
-    ordered_letters = sorted(letters, key=lambda x: (LETTER_SIZES.index(x) if x in LETTER_SIZES else 999, x))
-    ordered_nums    = sorted(nums, key=lambda x: int(x))
-    ordered_other   = sorted(other)
+    letters = []
+    nums = []
+    other = []
+    seen = set()
+    for s in all_sizes:
+        if s in seen:
+            continue
+        seen.add(s)
+        if s.isalpha():
+            letters.append(s)
+        elif s.isdigit():
+            nums.append(s)
+        else:
+            other.append(s)
+    ordered_letters = sorted(letters, key=lambda x: (_LETTER_SIZES_DICT.get(x, 999), x))
+    ordered_nums = sorted(nums, key=int)
+    ordered_other = sorted(other)
     return ordered_letters + ordered_nums + ordered_other
 
 def _normalize_href(href: str) -> str:
+    if not href:
+        return href
     if href.startswith("/"):
         return HM_BASE + href
-    if not href.startswith("http"):
-        return HM_BASE.rstrip("/") + "/" + href.lstrip("/")
-    return href
+    if href.startswith("http"):
+        return href
+    return f"{HM_BASE.rstrip('/')}/{href.lstrip('/')}"
 
 async def robust_goto(page: Page, url: str):
     last = None
@@ -86,69 +102,79 @@ async def robust_goto(page: Page, url: str):
 
 # ------------------ cookies/overlays ------------------
 
+_COOKIE_SELECTORS = [
+    "#onetrust-accept-btn-handler",
+    "button#onetrust-accept-btn-handler",
+    "button:has-text('Aceitar todos')",
+    "button:has-text('Aceitar')",
+    "button:has-text('Accept all')",
+    "button:has-text('Accept')",
+]
+
 async def _maybe_accept_cookies(page: Page):
-    for sel in [
-        "#onetrust-accept-btn-handler",
-        "button#onetrust-accept-btn-handler",
-        "button:has-text('Aceitar todos')",
-        "button:has-text('Aceitar')",
-        "button:has-text('Accept all')",
-        "button:has-text('Accept')",
-    ]:
+    for sel in _COOKIE_SELECTORS:
         try:
-            btn = page.locator(sel)
-            if await btn.count() > 0:
-                await btn.first.click()
+            btn = page.locator(sel).first
+            if await btn.is_visible(timeout=500):
+                await btn.click()
                 log.info("Cookie banner aceito (%s).", sel)
                 await page.wait_for_timeout(400)
-                break
+                return
         except Exception:
-            pass
+            continue
+
+_OVERLAY_SELECTORS = [
+    "button[aria-label='Fechar']",
+    "button:has-text('Fechar')",
+    "button:has-text('Close')",
+    "[data-testid='modal-close']",
+    "button[aria-label*='close' i]",
+]
 
 async def _close_overlays(page: Page):
-    for sel in [
-        "button[aria-label='Fechar']",
-        "button:has-text('Fechar')",
-        "button:has-text('Close')",
-        "[data-testid='modal-close']",
-        "button[aria-label*='close' i]",
-    ]:
+    for sel in _OVERLAY_SELECTORS:
         try:
-            el = page.locator(sel)
-            if await el.count() > 0:
-                await el.first.click()
+            el = page.locator(sel).first
+            if await el.is_visible(timeout=300):
+                await el.click()
                 log.info("Overlay fechado (%s).", sel)
                 await page.wait_for_timeout(250)
         except Exception:
-            pass
+            continue
 
 # ------------------ auto-scroll / load more ------------------
 
 async def _auto_scroll(page: Page, max_rounds: int = 60, pause_ms: int = 900):
     prev_h = 0
     stable = 0
+    scroll_js = "document.documentElement.scrollHeight"
     for i in range(max_rounds):
-        cur_h = await page.evaluate("document.documentElement.scrollHeight")
-        if cur_h <= prev_h: stable += 1
-        else: stable = 0
-        if stable >= 3: break
+        cur_h = await page.evaluate(scroll_js)
+        if cur_h <= prev_h:
+            stable += 1
+            if stable >= 3:
+                break
+        else:
+            stable = 0
         await page.mouse.wheel(0, 2400)
         await page.wait_for_timeout(pause_ms)
         prev_h = cur_h
     log.info("Auto-scroll finalizado (altura=%s, iterações=%s).", prev_h, i + 1)
 
+_LOAD_MORE_SELECTOR = (
+    'button:has-text("Carregar mais"), '
+    'button:has-text("Mais produtos"), '
+    'button:has-text("Load more"), '
+    'button:has-text("Ver mais"), '
+    'button:has-text("Mostrar mais")'
+)
+
 async def _load_more(page: Page, max_clicks: int = 8):
     for _ in range(max_clicks):
         try:
-            btn = page.locator(
-                'button:has-text("Carregar mais"), '
-                'button:has-text("Mais produtos"), '
-                'button:has-text("Load more"), '
-                'button:has-text("Ver mais"), '
-                'button:has-text("Mostrar mais")'
-            )
-            if await btn.count() > 0 and await btn.first.is_visible():
-                await btn.first.click()
+            btn = page.locator(_LOAD_MORE_SELECTOR).first
+            if await btn.is_visible(timeout=500):
+                await btn.click()
                 log.info("Clicado em 'Carregar mais'.")
                 await page.wait_for_timeout(1800)
             else:
@@ -226,31 +252,42 @@ DISCOVERY_JS = r"""
 async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
     try:
         urls = await page_or_frame.evaluate(DISCOVERY_JS)
-        # normaliza e filtra
+        if not urls:
+            return []
+        # normaliza e filtra usando set para deduplicação rápida
+        seen = set()
         uniq = []
         for u in urls:
-            if not u: continue
-            if not PDP_URL_RE.search(u): continue
-            # normalização simples (sem resolver URL relativa aqui; faremos em Python)
-            if u not in uniq: uniq.append(u)
+            if not u or u in seen:
+                continue
+            if PDP_URL_RE.search(u):
+                seen.add(u)
+                uniq.append(u)
         return uniq
     except Exception:
         return []
 
+_CLICK_SELECTORS = ["a", "button", "img", "*"]
+_PRODUCT_CANDIDATE_SELECTOR = (
+    '[data-testid*="product"], [class*="product-card"], [class*="ProductCard"], ' +
+    'article, li, a[role], div[role="link"]'
+)
+
 async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
     urls: List[str] = []
-    candidates = page_or_frame.locator(
-        '[data-testid*="product"], [class*="product-card"], [class*="ProductCard"], ' +
-        'article, li, a[role], div[role="link"]'
-    )
+    seen_urls = set()
+    candidates = page_or_frame.locator(_PRODUCT_CANDIDATE_SELECTOR)
     count = await candidates.count()
-    for i in range(min(count, limit * 4)):
-        if len(urls) >= limit: break
+    max_iter = min(count, limit * 4)
+    
+    for i in range(max_iter):
+        if len(urls) >= limit:
+            break
         el = candidates.nth(i)
         try:
             await el.scroll_into_view_if_needed()
             clicked = False
-            for sel in ["a", "button", "img", "*"]:
+            for sel in _CLICK_SELECTORS:
                 try:
                     target = el.locator(sel).first if sel != "*" else el
                     await target.click(timeout=3000, force=True)
@@ -258,7 +295,8 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
                     break
                 except Exception:
                     continue
-            if not clicked: continue
+            if not clicked:
+                continue
 
             # espera SPA mudar para PDP
             try:
@@ -267,7 +305,8 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
                 continue
 
             u = page_or_frame.page.url
-            if PDP_URL_RE.search(u) and u not in urls:
+            if PDP_URL_RE.search(u) and u not in seen_urls:
+                seen_urls.add(u)
                 urls.append(u)
 
             # volta para a categoria
@@ -284,15 +323,19 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
 
 async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     found: List[str] = []
+    seen = set()
 
     async def add_from_ctx(ctx, tag: str):
-        nonlocal found
+        nonlocal found, seen
         got = await _collect_pdp_urls_in(ctx)
+        if not got:
+            return
         # normaliza e agrega
         buf = []
         for h in got:
             nh = _normalize_href(h)
-            if PDP_URL_RE.search(nh) and nh not in found and nh not in buf:
+            if nh not in seen and PDP_URL_RE.search(nh):
+                seen.add(nh)
                 buf.append(nh)
         if buf:
             log.info("  + %s -> %d URLs", tag, len(buf))
@@ -304,15 +347,18 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     # 2) shadow/atributos/anchors varridos pelo JS (já incluso no passo 1)
     # 3) frames (se existirem)
     if USE_FRAME_SCAN:
-        for fr in page.frames:
-            if fr == page.main_frame: continue
+        frames = [fr for fr in page.frames if fr != page.main_frame]
+        for fr in frames:
+            if len(found) >= limit:
+                break
             try:
                 await add_from_ctx(fr, f"frame:{fr.url}")
             except Exception:
                 continue
 
-    await _load_more(page)
-    await _auto_scroll(page)
+    if len(found) < limit:
+        await _load_more(page)
+        await _auto_scroll(page)
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
     if USE_CLICK_FALLBACK and len(found) < limit:
@@ -322,9 +368,10 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             found.extend(extra)
 
     if USE_CLICK_FALLBACK and len(found) < limit:
-        for fr in page.frames:
-            if len(found) >= limit: break
-            if fr == page.main_frame: continue
+        frames = [fr for fr in page.frames if fr != page.main_frame]
+        for fr in frames:
+            if len(found) >= limit:
+                break
             try:
                 extra = await _discover_by_click_in(fr, limit - len(found))
                 if extra:
@@ -338,20 +385,29 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
 
 # ------------------ PDP -> nome + tamanhos ------------------
 
+_NAME_SELECTORS = [
+    ("h1", False),
+    ('meta[property="og:title"]', True),
+    ("title", False),
+]
+
 async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
     """Extrai (nome, {tamanho: status}) — família única (letras OU pares 32–52),
        'Poucas' somente com quadrado vermelho no próprio botão; 'Esgotado' por disabled/risco."""
-    # 1) Nome
+    # 1) Nome - cache de locators
     name = ""
-    for sel in ["h1", 'meta[property="og:title"]', "title"]:
+    for sel, is_meta in _NAME_SELECTORS:
         try:
-            loc = page.locator(sel)
+            loc = page.locator(sel).first
             if await loc.count() > 0:
-                v = await (loc.first.get_attribute("content") if sel.startswith("meta") else loc.first.inner_text())
-                if v and v.strip(): name = v.strip(); break
+                v = await (loc.get_attribute("content") if is_meta else loc.inner_text())
+                if v and (v := v.strip()):
+                    name = v
+                    break
         except Exception:
-            pass
-    if not name: name = "Produto H&M"
+            continue
+    if not name:
+        name = "Produto H&M"
 
     # 2) JS no contexto da página: coleta botões, determina status, separa por família
     js = r"""
@@ -359,12 +415,14 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
   const LETTERS = new Set(["XXP","XP","PP","P","M","G","GG","XG","XXG","XXGG","XXGGG"]);
   const NUMERIC = new Set(["32","34","36","38","40","42","44","46","48","50","52"]);
   const SYN = { "XS":"XP", "S":"P", "L":"G", "XL":"XG", "XXL":"XXG" };
+  const splitRe = /\s|–|-|·|\|/;
+  const cleanRe = /[^A-Z0-9]/g;
 
   function clean(txt){
     if(!txt) return "";
     let t = txt.trim().toUpperCase();
-    t = t.split(/\s|–|-|·|\|/)[0];
-    t = t.replace(/[^A-Z0-9]/g, "");
+    t = t.split(splitRe)[0];
+    t = t.replace(cleanRe, "");
     if (SYN[t]) t = SYN[t];
     return t;
   }
@@ -383,6 +441,7 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
     const rect = el.getBoundingClientRect();
     const elCenterX = rect.left + rect.width / 2;
     const elCenterY = rect.top + rect.height / 2;
+    const elStyle = getComputedStyle(el);
     
     // Verifica pseudo-elementos ::before e ::after
     try {
@@ -402,48 +461,48 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
       }
     } catch(e) {}
 
-    // Busca elementos filhos pequenos que possam ser indicadores vermelhos
-    // Especialmente no canto superior direito ou centralizado
-    const children = el.querySelectorAll('*');
-    for (const child of children) {
-      const childRect = child.getBoundingClientRect();
-      const cs = getComputedStyle(child);
-      
-      // Verifica se é um elemento pequeno (quadrado/indicador)
-      const isSmall = childRect.width <= 20 && childRect.height <= 20;
-      
-      if (isSmall) {
-        // Verifica se está posicionado no canto superior direito ou centralizado
-        const isTopRight = (childRect.left >= rect.left + rect.width * 0.5) && 
-                           (childRect.top <= rect.top + rect.height * 0.5);
-        const isCentered = Math.abs(childRect.left + childRect.width/2 - elCenterX) < 5 &&
-                           Math.abs(childRect.top + childRect.height/2 - elCenterY) < 5;
-        
-        if (isTopRight || isCentered) {
-          // Verifica se tem cor vermelha
-          if (isRed(cs.backgroundColor) || isRed(cs.borderColor) || isRed(cs.color)) {
-            return true;
-          }
-          
-          // Verifica se tem background-image com vermelho
-          const bgImg = cs.backgroundImage;
-          if (bgImg && bgImg !== 'none') {
-            // Tenta detectar gradientes ou imagens vermelhas
-            if (/rgb\(255,\s*0,\s*0\)|rgba\(255,\s*0,\s*0|#ff0000|#f00/i.test(bgImg)) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    
-    // Verifica também o próprio elemento se tiver borda vermelha ou background vermelho parcial
-    const elStyle = getComputedStyle(el);
+    // Verifica também o próprio elemento se tiver borda vermelha (cache de elStyle)
     if (isRed(elStyle.borderColor) || isRed(elStyle.borderTopColor) || 
         isRed(elStyle.borderRightColor) || isRed(elStyle.borderBottomColor) || 
         isRed(elStyle.borderLeftColor)) {
-      // Mas só se não for esgotado (verificado separadamente)
       return true;
+    }
+
+    // Busca elementos filhos pequenos que possam ser indicadores vermelhos
+    // Especialmente no canto superior direito ou centralizado
+    const children = el.querySelectorAll('*');
+    const bgImgRe = /rgb\(255,\s*0,\s*0\)|rgba\(255,\s*0,\s*0|#ff0000|#f00/i;
+    const halfWidth = rect.width * 0.5;
+    const halfHeight = rect.height * 0.5;
+    
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      const childRect = child.getBoundingClientRect();
+      
+      // Verifica se é um elemento pequeno (quadrado/indicador)
+      if (childRect.width > 20 || childRect.height > 20) continue;
+      
+      // Verifica posicionamento otimizado
+      const isTopRight = (childRect.left >= rect.left + halfWidth) && 
+                         (childRect.top <= rect.top + halfHeight);
+      const childCenterX = childRect.left + childRect.width / 2;
+      const childCenterY = childRect.top + childRect.height / 2;
+      const isCentered = Math.abs(childCenterX - elCenterX) < 5 &&
+                         Math.abs(childCenterY - elCenterY) < 5;
+      
+      if (isTopRight || isCentered) {
+        const cs = getComputedStyle(child);
+        // Verifica se tem cor vermelha
+        if (isRed(cs.backgroundColor) || isRed(cs.borderColor) || isRed(cs.color)) {
+          return true;
+        }
+        
+        // Verifica se tem background-image com vermelho
+        const bgImg = cs.backgroundImage;
+        if (bgImg && bgImg !== 'none' && bgImgRe.test(bgImg)) {
+          return true;
+        }
+      }
     }
     
     return false;
@@ -460,7 +519,7 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
       if (cl.includes("strike") || cl.includes("line-through") || cl.includes("cross") || 
           cl.includes("soldout") || cl.includes("unavailable")) return true;
       
-      // Verifica elementos semânticos de riscado
+      // Verifica elementos semânticos de riscado (cache da query)
       if (n.querySelector("s, del, strike")) return true;
       
       return false;
@@ -468,70 +527,84 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
     
     if (check(el)) return true;
     
-    // Verifica filhos recursivamente
-    for (const child of el.querySelectorAll("*")) {
-      if (check(child)) return true;
+    // Verifica filhos recursivamente (otimizado: para na primeira ocorrência)
+    const children = el.querySelectorAll("*");
+    for (let i = 0; i < children.length; i++) {
+      if (check(children[i])) return true;
     }
     
     return false;
   }
 
   // Tenta achar o container de tamanhos mais "rico"
-  const containers = Array.from(document.querySelectorAll(
-    '[id*="size" i], [class*="size" i], [data-test*="size" i], section, fieldset, div'
-  )).filter(el => {
-    const txt = (el.textContent || "").toLowerCase();
-    return /escolha o tamanho|tamanho|size|selecione/i.test(txt);
+  const sizeContainerSel = '[id*="size" i], [class*="size" i], [data-test*="size" i], section, fieldset, div';
+  const sizeTextRe = /escolha o tamanho|tamanho|size|selecione/i;
+  const allContainers = document.querySelectorAll(sizeContainerSel);
+  const containers = Array.from(allContainers).filter(el => {
+    return sizeTextRe.test((el.textContent || "").toLowerCase());
   });
 
+  const sizeNodeSel = 'button, label, [role="option"], [role="radio"], input[type="radio"]+label, ' +
+                      '[data-size], [data-testid*="size" i], li, a, span, div';
+  
   let scope = document;
   let best = -1;
-  for (const el of (containers.length ? containers : [document])) {
-    const count = el.querySelectorAll(
-      'button, label, [role="option"], [role="radio"], input[type="radio"]+label, ' +
-      '[data-size], [data-testid*="size" i], li, a, span, div'
-    ).length;
+  const candidates = containers.length ? containers : [document];
+  for (let i = 0; i < candidates.length; i++) {
+    const el = candidates[i];
+    const count = el.querySelectorAll(sizeNodeSel).length;
     if (count > best) { best = count; scope = el; }
   }
 
-  const nodes = scope.querySelectorAll(
-    'button, label, [role="option"], [role="radio"], input[type="radio"]+label, ' +
-    '[data-size], [data-testid*="size" i], li, a, span, div'
-  );
+  const nodes = scope.querySelectorAll(sizeNodeSel);
 
   const L = [];
   const N = [];
   const rank = s => s==='Esgotado' ? 2 : (s==='Poucas unidades' ? 1 : 0);
 
-  for (const el of nodes) {
+  const soldoutRe = /(soldout|sold-out|out-of-stock|unavailable|esgotad|indispon|não disponível)/;
+  
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i];
+    const textContent = el.textContent || "";
+    const dataSize = el.getAttribute("data-size") || "";
+    const dataSkuSize = el.getAttribute("data-sku-size") || "";
+    const ariaLabel = el.getAttribute("aria-label") || "";
+    const title = el.getAttribute("title") || "";
+    
     const cand = [
-      clean(el.textContent || ""),
-      clean(el.getAttribute("data-size") || ""),
-      clean(el.getAttribute("data-sku-size") || ""),
-      clean(el.getAttribute("aria-label") || ""),
-      clean(el.getAttribute("title") || "")
+      clean(textContent),
+      clean(dataSize),
+      clean(dataSkuSize),
+      clean(ariaLabel),
+      clean(title)
     ].filter(Boolean);
 
     let label = "";
-    for (const t of cand) {
+    for (let j = 0; j < cand.length; j++) {
+      const t = cand[j];
       if (LETTERS.has(t) || NUMERIC.has(t)) { label = t; break; }
     }
     if (!label) continue;
 
+    // Cache de computed style
+    const cs = getComputedStyle(el);
+    
     // Verifica se está desabilitado
     const disabled = !!el.disabled || 
                      el.getAttribute("aria-disabled") === "true" || 
-                     getComputedStyle(el).pointerEvents === "none" ||
-                     getComputedStyle(el).opacity === "0.5" ||
+                     cs.pointerEvents === "none" ||
+                     cs.opacity === "0.5" ||
                      el.classList.contains("disabled") ||
                      el.hasAttribute("disabled");
 
-    // Verifica metadados para esgotado
-    const meta = ((el.className||"") + " " + (el.getAttribute("aria-label")||"") + " " + 
-                  (el.getAttribute("title")||"") + " " + (el.getAttribute("data-status")||"")).toLowerCase();
+    // Verifica metadados para esgotado (concatenação otimizada)
+    const className = el.className || "";
+    const dataStatus = el.getAttribute("data-status") || "";
+    const meta = `${className} ${ariaLabel} ${title} ${dataStatus}`.toLowerCase();
     const sold = disabled || 
                  hasLineThrough(el) || 
-                 /(soldout|sold-out|out-of-stock|unavailable|esgotad|indispon|não disponível)/.test(meta);
+                 soldoutRe.test(meta);
 
     // Verifica indicador vermelho (quadrado) para baixa disponibilidade
     // Só marca como "Poucas unidades" se NÃO estiver esgotado E tiver indicador vermelho
@@ -570,20 +643,31 @@ async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
 # ------------------ Excel ------------------
 
 def build_excel(items: List[Tuple[str, Dict[str, str]]]) -> pd.DataFrame:
-    all_sizes: List[str] = []
+    if not items:
+        return pd.DataFrame(columns=["Nome do Produto"])
+    
+    # Coleta tamanhos únicos de forma otimizada
+    all_sizes_set = set()
     for _, mp in items:
-        all_sizes.extend(list(mp.keys()))
-    all_sizes = [s for s in set(all_sizes)
-                 if (s.isalpha() and s in LETTER_SIZES) or (s.isdigit() and s in NUMERIC_ALLOWED)]
+        all_sizes_set.update(mp.keys())
+    
+    # Filtra tamanhos válidos
+    all_sizes = [
+        s for s in all_sizes_set
+        if (s.isalpha() and s in LETTER_SIZES) or (s.isdigit() and s in NUMERIC_ALLOWED)
+    ]
     size_cols = _order_sizes(all_sizes)
 
+    # Constrói rows de forma otimizada
     rows = []
+    columns = ["Nome do Produto"] + size_cols
     for name, mp in items:
         row = {"Nome do Produto": name}
-        for s in size_cols:
-            row[s] = mp.get(s, LABEL_HYPHEN)
+        # Usa dict comprehension para melhor performance
+        row.update({s: mp.get(s, LABEL_HYPHEN) for s in size_cols})
         rows.append(row)
-    return pd.DataFrame(rows, columns=["Nome do Produto"] + size_cols)
+    
+    return pd.DataFrame(rows, columns=columns)
 
 # ------------------ MAIN ------------------
 
@@ -626,8 +710,9 @@ async def main():
             return
 
         items: List[Tuple[str, Dict[str, str]]] = []
-        for i, url in enumerate(pdp_urls[:PRODUCT_LIMIT], 1):
-            log.info("[%d/%d] Abrindo PDP…", i, min(PRODUCT_LIMIT, len(pdp_urls)))
+        limit = min(PRODUCT_LIMIT, len(pdp_urls))
+        for i, url in enumerate(pdp_urls[:limit], 1):
+            log.info("[%d/%d] Abrindo PDP…", i, limit)
             try:
                 await page.goto(url, wait_until="domcontentloaded")
             except PWTimeout:
@@ -641,7 +726,11 @@ async def main():
             await _close_overlays(page)
 
             name, sizes = await parse_pdp(page)
-            log.info(" → %s | tamanhos: %s", name, ", ".join(f"{k}:{v}" for k,v in sorted(sizes.items())))
+            if sizes:
+                sizes_str = ", ".join(f"{k}:{v}" for k, v in sorted(sizes.items()))
+                log.info(" → %s | tamanhos: %s", name, sizes_str)
+            else:
+                log.info(" → %s | nenhum tamanho detectado", name)
             items.append((name, sizes))
 
         await ctx.close(); await browser.close()
