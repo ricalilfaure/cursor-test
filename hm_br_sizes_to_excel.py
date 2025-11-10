@@ -24,7 +24,7 @@ CATEGORY_URL = (
 PRODUCT_LIMIT = 5
 OUTPUT_XLSX   = "hm_status.xlsx"
 HEADLESS      = False
-LOG_LEVEL     = "INFO"
+LOG_LEVEL     = "DEBUG"  # Mude para "INFO" em produção
 
 # Descoberta de PDPs (ligue/desligue conforme necessidade)
 USE_SHADOW_SCAN   = True
@@ -197,36 +197,88 @@ DISCOVERY_JS = r"""
   const EXCLUDE_CATEGORIES = /\/(homem|masculino|men|man|casa|home|decoracao|decor|infantil|kids|bebe|baby)\//i;
 
   const isValidProductUrl = (url) => {
-    if (!url || !PDP.test(url)) return false;
+    if (!url || typeof url !== 'string') return false;
+    // Normaliza URL relativa
+    let normalized = url.trim();
+    if (normalized.startsWith('//')) normalized = 'https:' + normalized;
+    if (normalized.startsWith('/')) normalized = 'https://www.hm.com.br' + normalized;
+    
+    if (!PDP.test(normalized)) return false;
     // Exclui URLs de outras categorias
-    if (EXCLUDE_CATEGORIES.test(url)) return false;
+    if (EXCLUDE_CATEGORIES.test(normalized)) return false;
     return true;
+  };
+
+  const normalizeUrl = (url) => {
+    if (!url || typeof url !== 'string') return '';
+    let normalized = url.trim();
+    if (normalized.startsWith('//')) normalized = 'https:' + normalized;
+    if (normalized.startsWith('/')) normalized = 'https://www.hm.com.br' + normalized;
+    return normalized;
   };
 
   const extractFromRoot = (root) => {
     try {
-      // anchors
+      // anchors - busca mais abrangente
       root.querySelectorAll('a[href]').forEach(a => {
-        const h = a.getAttribute('href') || '';
-        const abs = a.href || '';
-        if (isValidProductUrl(h)) out.add(h);
-        else if (isValidProductUrl(abs)) out.add(abs);
+        try {
+          const h = a.getAttribute('href') || '';
+          const abs = a.href || '';
+          const normalizedH = normalizeUrl(h);
+          const normalizedAbs = normalizeUrl(abs);
+          
+          if (isValidProductUrl(normalizedH)) {
+            out.add(normalizedH);
+          } else if (isValidProductUrl(normalizedAbs)) {
+            out.add(normalizedAbs);
+          } else if (h && PDP.test(h) && !EXCLUDE_CATEGORIES.test(h)) {
+            // Tenta normalizar e adicionar
+            const norm = normalizeUrl(h);
+            if (norm && isValidProductUrl(norm)) out.add(norm);
+          }
+        } catch(e) {}
       });
 
-      // atributos
-      root.querySelectorAll('[data-href],[data-url],[data-product-url],[data-link],[onclick]').forEach(el => {
-        const attrs = ['data-href','data-url','data-product-url','data-link','onclick'];
-        for (const k of attrs) {
-          const v = el.getAttribute(k);
-          if (!v) continue;
-          const str = String(v);
-          const m = str.match(/['"]((?:https?:)?\/?[^'"]*\/(?:p|produto|product)\/[^'"]+)['"]/i);
-          if (m && m[1] && isValidProductUrl(m[1])) { 
-            out.add(m[1]); 
-            continue; 
+      // atributos - busca em mais atributos
+      root.querySelectorAll('[data-href],[data-url],[data-product-url],[data-link],[data-product-id],[onclick],[href]').forEach(el => {
+        try {
+          const attrs = ['data-href','data-url','data-product-url','data-link','data-product-id','onclick','href'];
+          for (const k of attrs) {
+            const v = el.getAttribute(k);
+            if (!v) continue;
+            const str = String(v);
+            
+            // Tenta extrair URL de strings complexas
+            const urlMatches = str.match(/['"]((?:https?:)?\/?[^'"]*\/(?:p|produto|product)\/[^'"]+)['"]/gi);
+            if (urlMatches) {
+              urlMatches.forEach(match => {
+                const cleanUrl = match.replace(/['"]/g, '');
+                const norm = normalizeUrl(cleanUrl);
+                if (isValidProductUrl(norm)) out.add(norm);
+              });
+            }
+            
+            // Verifica se a string inteira é uma URL válida
+            const norm = normalizeUrl(str);
+            if (isValidProductUrl(norm)) out.add(norm);
           }
-          if (isValidProductUrl(str)) out.add(str);
-        }
+        } catch(e) {}
+      });
+
+      // Busca em elementos com classes/ids relacionados a produtos
+      root.querySelectorAll('[class*="product" i], [id*="product" i], [data-testid*="product" i]').forEach(el => {
+        try {
+          // Tenta encontrar link dentro do elemento
+          const link = el.querySelector('a[href]');
+          if (link) {
+            const h = link.getAttribute('href') || '';
+            const abs = link.href || '';
+            const normH = normalizeUrl(h);
+            const normAbs = normalizeUrl(abs);
+            if (isValidProductUrl(normH)) out.add(normH);
+            else if (isValidProductUrl(normAbs)) out.add(normAbs);
+          }
+        } catch(e) {}
       });
 
       // JSON-LD
@@ -236,12 +288,16 @@ DISCOVERY_JS = r"""
           if (!txt.trim()) return;
           const data = JSON.parse(txt);
           const push = (u) => {
-            if (isValidProductUrl(u)) out.add(u);
+            if (u && typeof u === 'string') {
+              const norm = normalizeUrl(u);
+              if (isValidProductUrl(norm)) out.add(norm);
+            }
           };
           const walk = (x) => {
             if (Array.isArray(x)) return x.forEach(walk);
             if (x && typeof x === 'object') {
               if (x.url) push(x.url);
+              if (x['@id']) push(x['@id']);
               Object.values(x).forEach(walk);
             }
           };
@@ -251,7 +307,9 @@ DISCOVERY_JS = r"""
 
       // desce em shadow roots
       root.querySelectorAll('*').forEach(el => {
-        if (el && el.shadowRoot) extractFromRoot(el.shadowRoot);
+        try {
+          if (el && el.shadowRoot) extractFromRoot(el.shadowRoot);
+        } catch(e) {}
       });
     } catch(e){}
   };
@@ -265,18 +323,36 @@ async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
     try:
         urls = await page_or_frame.evaluate(DISCOVERY_JS)
         if not urls:
+            log.debug("Nenhuma URL encontrada pelo JavaScript de descoberta")
             return []
+        
+        log.debug("JavaScript encontrou %d URLs brutas", len(urls))
+        
         # normaliza e filtra usando set para deduplicação rápida
         seen = set()
         uniq = []
         for u in urls:
             if not u or u in seen:
                 continue
-            if PDP_URL_RE.search(u):
-                seen.add(u)
-                uniq.append(u)
+            # Normaliza novamente em Python para garantir
+            normalized = _normalize_href(u)
+            if normalized in seen:
+                continue
+            if PDP_URL_RE.search(normalized):
+                # Verifica se não é de outra categoria
+                if not re.search(r"/(homem|masculino|men|man|casa|home|decoracao)/", normalized, re.I):
+                    seen.add(normalized)
+                    uniq.append(normalized)
+                    log.debug("URL válida encontrada: %s", normalized)
+                else:
+                    log.debug("URL filtrada (outra categoria): %s", normalized)
+            else:
+                log.debug("URL não é produto: %s", normalized)
+        
+        log.debug("Total de URLs válidas após filtro: %d", len(uniq))
         return uniq
-    except Exception:
+    except Exception as e:
+        log.warning("Erro ao coletar URLs: %s", e)
         return []
 
 _CLICK_SELECTORS = ["a", "button", "img", "*"]
@@ -457,6 +533,35 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
 
     # 1) no documento principal
     await add_from_ctx(page, "document")
+
+    # Estratégia alternativa: busca direta por links usando Playwright
+    if len(found) == 0:
+        log.info("Tentando estratégia alternativa de descoberta...")
+        try:
+            # Busca todos os links que podem ser produtos
+            all_links = page.locator('a[href*="/p/"], a[href*="/produto/"], a[href*="/product/"]')
+            link_count = await all_links.count()
+            log.debug("Encontrados %d links potenciais de produto", link_count)
+            
+            for i in range(min(link_count, limit * 3)):
+                try:
+                    link = all_links.nth(i)
+                    href = await link.get_attribute("href")
+                    if href:
+                        normalized = _normalize_href(href)
+                        if normalized not in seen and PDP_URL_RE.search(normalized):
+                            # Verifica se não é de outra categoria
+                            if not re.search(r"/(homem|masculino|men|man|casa|home|decoracao)/", normalized, re.I):
+                                seen.add(normalized)
+                                found.append(normalized)
+                                log.debug("URL encontrada via estratégia alternativa: %s", normalized)
+                except Exception:
+                    continue
+            
+            if found:
+                log.info("Estratégia alternativa encontrou %d URLs", len(found))
+        except Exception as e:
+            log.warning("Erro na estratégia alternativa: %s", e)
 
     # Verifica novamente após primeira coleta
     if not CATEGORY_URL_BASE.search(page.url):
@@ -819,9 +924,18 @@ async def main():
         except PWTimeout:
             log.warning("Timeout no goto da categoria; seguindo.")
 
-        await page.wait_for_timeout(1500)
+        await page.wait_for_timeout(2000)
         await _maybe_accept_cookies(page)
         await _close_overlays(page)
+        
+        # Aguarda elementos da página carregarem
+        try:
+            # Tenta aguardar algum elemento comum de lista de produtos
+            await page.wait_for_selector('a[href*="/p/"], a[href*="/produto/"], article, [class*="product"]', timeout=10000)
+        except Exception:
+            log.warning("Timeout aguardando elementos da página, continuando...")
+        
+        await page.wait_for_timeout(1000)
 
         # Verifica se está na categoria correta após cookies/overlays
         if not await _ensure_category_page(page):
