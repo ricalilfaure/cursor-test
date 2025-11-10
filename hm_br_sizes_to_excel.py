@@ -326,11 +326,10 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             log.info("  + %s -> %d URLs", tag, len(buf))
             found.extend(buf)
 
-    # 1) no documento principal
+    # 1) no documento principal (conteúdo inicial)
     await add_from_ctx(page, "document")
 
-    # 2) shadow/atributos/anchors varridos pelo JS (já incluso no passo 1)
-    # 3) frames (se existirem)
+    # 2) frames antes de scroll (conteúdo inicial em iframes)
     if USE_FRAME_SCAN:
         for fr in page.frames:
             if fr == page.main_frame:
@@ -340,8 +339,21 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             except Exception:
                 continue
 
+    # 3) aciona carregamento incremental
     await _load_more(page)
     await _auto_scroll(page)
+
+    # 4) revarre documento após scroll (novos cards carregados)
+    await add_from_ctx(page, "document-scroll")
+
+    if USE_FRAME_SCAN:
+        for fr in page.frames:
+            if fr == page.main_frame:
+                continue
+            try:
+                await add_from_ctx(fr, f"frame-scroll:{fr.url}")
+            except Exception:
+                continue
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
     if USE_CLICK_FALLBACK and len(found) < limit:
