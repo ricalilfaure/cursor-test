@@ -534,13 +534,13 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     # ESTRATÉGIA 1: Busca direta por links usando Playwright (mais confiável)
     log.info("Estratégia 1: Busca direta por links de produto...")
     try:
-        # Múltiplos seletores para encontrar links de produtos
+        # Múltiplos seletores para encontrar links de produtos - ordem de especificidade
         selectors = [
-            'a[href*="/p/"]',
-            'a[href*="/produto/"]',
-            'a[href*="/product/"]',
-            'a[href^="/p/"]',
-            'a[href^="/produto/"]',
+            'a[href*="/p/"]',           # Mais comum: /p/xxxxx
+            'a[href*="/produto/"]',     # Alternativa: /produto/xxxxx
+            'a[href*="/product/"]',     # Inglês: /product/xxxxx
+            'a[href^="/p/"]',           # Começa com /p/
+            'a[href^="/produto/"]',     # Começa com /produto/
         ]
         
         all_found_links = []
@@ -548,37 +548,63 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             try:
                 links = page.locator(selector)
                 count = await links.count()
-                log.debug("  Seletor '%s': %d links encontrados", selector, count)
+                log.info("  Seletor '%s': %d links encontrados", selector, count)
                 
-                for i in range(min(count, limit * 5)):
+                # Coleta TODOS os links deste seletor (não apenas limit * 5)
+                for i in range(count):
                     try:
                         link = links.nth(i)
+                        # Verifica se está visível (não está escondido)
+                        is_visible = await link.is_visible()
+                        if not is_visible:
+                            continue
+                            
                         href = await link.get_attribute("href")
                         if href:
                             normalized = _normalize_href(href)
                             if normalized and normalized not in all_found_links:
                                 all_found_links.append(normalized)
-                    except Exception:
+                                log.debug("    Link [%d]: %s", i+1, normalized)
+                    except Exception as e:
+                        log.debug("    Erro ao processar link [%d]: %s", i+1, e)
                         continue
             except Exception as e:
-                log.debug("  Erro com seletor '%s': %s", selector, e)
+                log.warning("  Erro com seletor '%s': %s", selector, e)
                 continue
         
-        log.debug("  Total de links únicos encontrados: %d", len(all_found_links))
+        log.info("  Total de links únicos coletados: %d", len(all_found_links))
         
         # Filtra e adiciona URLs válidas
+        valid_count = 0
+        filtered_count = 0
         for href in all_found_links:
-            if href not in seen and PDP_URL_RE.search(href):
-                # Verifica se não é de outra categoria
-                if not re.search(r"/(homem|masculino|men|man|casa|home|decoracao)/", href, re.I):
-                    seen.add(href)
-                    found.append(href)
-                    log.debug("  URL válida encontrada: %s", href)
+            if href in seen:
+                continue
+                
+            # Verifica se é URL de produto
+            if not PDP_URL_RE.search(href):
+                filtered_count += 1
+                log.debug("  Filtrado (não é produto): %s", href)
+                continue
+            
+            # Verifica se não é de outra categoria
+            if re.search(r"/(homem|masculino|men|man|casa|home|decoracao)/", href, re.I):
+                filtered_count += 1
+                log.debug("  Filtrado (outra categoria): %s", href)
+                continue
+            
+            # URL válida!
+            seen.add(href)
+            found.append(href)
+            valid_count += 1
+            log.info("  ✓ URL válida [%d]: %s", valid_count, href)
         
-        if found:
-            log.info("  Estratégia 1 encontrou %d URLs válidas", len(found))
+        log.info("  Estratégia 1: %d válidas, %d filtradas", valid_count, filtered_count)
+        
     except Exception as e:
-        log.warning("Erro na estratégia 1: %s", e)
+        log.error("Erro na estratégia 1: %s", e)
+        import traceback
+        log.debug(traceback.format_exc())
 
     # ESTRATÉGIA 2: JavaScript de descoberta (se ainda não encontrou o suficiente)
     if len(found) < limit:
@@ -974,14 +1000,38 @@ async def main():
         await _maybe_accept_cookies(page)
         await _close_overlays(page)
         
-        # Aguarda elementos da página carregarem
+        # Aguarda elementos da página carregarem - múltiplas tentativas
+        log.info("Aguardando carregamento completo da página...")
         try:
-            # Tenta aguardar algum elemento comum de lista de produtos
-            await page.wait_for_selector('a[href*="/p/"], a[href*="/produto/"], article, [class*="product"]', timeout=10000)
+            # Aguarda network idle para garantir que tudo carregou
+            await page.wait_for_load_state("networkidle", timeout=15000)
         except Exception:
-            log.warning("Timeout aguardando elementos da página, continuando...")
+            log.debug("Networkidle timeout, continuando...")
         
-        await page.wait_for_timeout(1000)
+        # Aguarda elementos específicos aparecerem
+        selectors_to_wait = [
+            'a[href*="/p/"]',
+            'a[href*="/produto/"]',
+            'article',
+            '[class*="product" i]',
+            '[data-testid*="product" i]',
+            'a[href]',  # Qualquer link como último recurso
+        ]
+        
+        waited = False
+        for selector in selectors_to_wait:
+            try:
+                await page.wait_for_selector(selector, timeout=5000, state="attached")
+                log.debug("Elemento encontrado: %s", selector)
+                waited = True
+                break
+            except Exception:
+                continue
+        
+        if not waited:
+            log.warning("Nenhum seletor esperado foi encontrado, mas continuando...")
+        
+        await page.wait_for_timeout(2000)  # Tempo extra para garantir renderização
 
         # Verifica se está na categoria correta após cookies/overlays
         if not await _ensure_category_page(page):
@@ -1013,17 +1063,57 @@ async def main():
                 p_count = await p_links.count()
                 log.error("Links contendo '/p/': %d", p_count)
                 
-                # Mostra alguns exemplos
+                # Conta links que contêm "/produto/"
+                produto_links = page.locator('a[href*="/produto/"]')
+                produto_count = await produto_links.count()
+                log.error("Links contendo '/produto/': %d", produto_count)
+                
+                # Mostra alguns exemplos de cada tipo
                 if p_count > 0:
-                    log.error("Exemplos de links encontrados:")
-                    for i in range(min(5, p_count)):
+                    log.error("Exemplos de links '/p/':")
+                    for i in range(min(10, p_count)):
                         try:
                             link = p_links.nth(i)
+                            is_visible = await link.is_visible()
                             href = await link.get_attribute("href")
                             text = await link.inner_text()
-                            log.error("  [%d] href='%s' text='%s'", i+1, href, text[:50])
-                        except Exception:
-                            pass
+                            log.error("  [%d] href='%s' text='%s' visible=%s", i+1, href, text[:50], is_visible)
+                        except Exception as e:
+                            log.error("  [%d] Erro: %s", i+1, e)
+                
+                if produto_count > 0:
+                    log.error("Exemplos de links '/produto/':")
+                    for i in range(min(10, produto_count)):
+                        try:
+                            link = produto_links.nth(i)
+                            is_visible = await link.is_visible()
+                            href = await link.get_attribute("href")
+                            text = await link.inner_text()
+                            log.error("  [%d] href='%s' text='%s' visible=%s", i+1, href, text[:50], is_visible)
+                        except Exception as e:
+                            log.error("  [%d] Erro: %s", i+1, e)
+                
+                # Tenta encontrar TODOS os links e verificar quais são produtos
+                log.error("Analisando TODOS os links da página...")
+                all_links_locator = page.locator('a[href]')
+                all_count = await all_links_locator.count()
+                log.error("Total de links <a href>: %d", all_count)
+                
+                product_patterns = []
+                for i in range(min(50, all_count)):  # Analisa primeiros 50
+                    try:
+                        link = all_links_locator.nth(i)
+                        href = await link.get_attribute("href")
+                        if href and ('/p/' in href or '/produto/' in href or '/product/' in href):
+                            normalized = _normalize_href(href)
+                            product_patterns.append((i, href, normalized))
+                    except Exception:
+                        continue
+                
+                if product_patterns:
+                    log.error("Links com padrão de produto encontrados:")
+                    for idx, orig, norm in product_patterns[:10]:
+                        log.error("  [%d] original='%s' normalized='%s'", idx, orig, norm)
                 
                 # Verifica se há produtos carregados via JavaScript
                 product_elements = page.locator('[class*="product" i], [data-testid*="product" i], article')
