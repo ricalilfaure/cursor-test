@@ -41,6 +41,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
 
 PDP_URL_RE = re.compile(r"/(p|produto|product)/", re.I)
+CATEGORY_URL_BASE = re.compile(r"/feminino/vestuario", re.I)
 
 LABEL_SOLDOUT = "Esgotado"
 LABEL_LOW     = "Poucas unidades"
@@ -190,8 +191,17 @@ DISCOVERY_JS = r"""
   //  - <a href> com /p|produto|product/
   //  - atributos: data-href, data-url, data-product-url, data-link, onclick (com URL)
   //  - JSON-LD com url para produto
+  // FILTRA: exclui links de outras categorias (homem, casa, etc)
   const out = new Set();
   const PDP = /\/(p|produto|product)\//i;
+  const EXCLUDE_CATEGORIES = /\/(homem|masculino|men|man|casa|home|decoracao|decor|infantil|kids|bebe|baby)\//i;
+
+  const isValidProductUrl = (url) => {
+    if (!url || !PDP.test(url)) return false;
+    // Exclui URLs de outras categorias
+    if (EXCLUDE_CATEGORIES.test(url)) return false;
+    return true;
+  };
 
   const extractFromRoot = (root) => {
     try {
@@ -199,8 +209,8 @@ DISCOVERY_JS = r"""
       root.querySelectorAll('a[href]').forEach(a => {
         const h = a.getAttribute('href') || '';
         const abs = a.href || '';
-        if (PDP.test(h)) out.add(h);
-        else if (PDP.test(abs)) out.add(abs);
+        if (isValidProductUrl(h)) out.add(h);
+        else if (isValidProductUrl(abs)) out.add(abs);
       });
 
       // atributos
@@ -211,8 +221,11 @@ DISCOVERY_JS = r"""
           if (!v) continue;
           const str = String(v);
           const m = str.match(/['"]((?:https?:)?\/?[^'"]*\/(?:p|produto|product)\/[^'"]+)['"]/i);
-          if (m && m[1]) { out.add(m[1]); continue; }
-          if (PDP.test(str)) out.add(str);
+          if (m && m[1] && isValidProductUrl(m[1])) { 
+            out.add(m[1]); 
+            continue; 
+          }
+          if (isValidProductUrl(str)) out.add(str);
         }
       });
 
@@ -223,8 +236,7 @@ DISCOVERY_JS = r"""
           if (!txt.trim()) return;
           const data = JSON.parse(txt);
           const push = (u) => {
-            if (!u) return;
-            if (PDP.test(u)) out.add(u);
+            if (isValidProductUrl(u)) out.add(u);
           };
           const walk = (x) => {
             if (Array.isArray(x)) return x.forEach(walk);
@@ -272,10 +284,39 @@ _PRODUCT_CANDIDATE_SELECTOR = (
     '[data-testid*="product"], [class*="product-card"], [class*="ProductCard"], ' +
     'article, li, a[role], div[role="link"]'
 )
+# Seletores que devem ser evitados (navegação, menu, etc)
+_NAVIGATION_EXCLUDE_SELECTORS = [
+    'nav', 'header', 'footer', '[role="navigation"]', 
+    '[class*="menu"]', '[class*="nav"]', '[class*="header"]',
+    '[class*="footer"]', '[id*="menu"]', '[id*="nav"]'
+]
 
-async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
+async def _ensure_category_page(page: Page) -> bool:
+    """Garante que está na página de categoria correta"""
+    try:
+        current_url = page.url
+        if CATEGORY_URL_BASE.search(current_url):
+            return True
+        log.warning("URL atual não corresponde à categoria esperada: %s. Recarregando...", current_url)
+        await robust_goto(page, CATEGORY_URL)
+        await page.wait_for_timeout(1000)
+        await _maybe_accept_cookies(page)
+        await _close_overlays(page)
+        return CATEGORY_URL_BASE.search(page.url) is not None
+    except Exception as e:
+        log.warning("Erro ao verificar categoria: %s", e)
+        return False
+
+async def _discover_by_click_in(page_or_frame, limit: int, category_url: str) -> List[str]:
     urls: List[str] = []
     seen_urls = set()
+    page = page_or_frame.page if hasattr(page_or_frame, 'page') else page_or_frame
+    
+    # Verifica se está na categoria correta antes de começar
+    if not await _ensure_category_page(page):
+        log.warning("Não está na categoria correta. Pulando descoberta por clique.")
+        return urls
+    
     candidates = page_or_frame.locator(_PRODUCT_CANDIDATE_SELECTOR)
     count = await candidates.count()
     max_iter = min(count, limit * 4)
@@ -283,9 +324,58 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
     for i in range(max_iter):
         if len(urls) >= limit:
             break
+        
+        # Verifica URL antes de cada iteração
+        if not CATEGORY_URL_BASE.search(page.url):
+            log.warning("Saiu da categoria durante descoberta. Voltando...")
+            if not await _ensure_category_page(page):
+                break
+        
         el = candidates.nth(i)
         try:
+            # Verifica se o elemento não está em áreas de navegação
+            try:
+                # Verifica se está dentro de nav/header/footer
+                parent_nav = await el.evaluate("""
+                    (el) => {
+                        let current = el.parentElement;
+                        while (current) {
+                            const tag = current.tagName?.toLowerCase();
+                            const cls = (current.className || '').toLowerCase();
+                            const id = (current.id || '').toLowerCase();
+                            if (tag === 'nav' || tag === 'header' || tag === 'footer' ||
+                                cls.includes('menu') || cls.includes('nav') || cls.includes('header') ||
+                                id.includes('menu') || id.includes('nav')) {
+                                return true;
+                            }
+                            current = current.parentElement;
+                        }
+                        return false;
+                    }
+                """)
+                if parent_nav:
+                    continue  # Está em área de navegação, pula
+            except Exception:
+                pass
+            
             await el.scroll_into_view_if_needed()
+            
+            # Verifica se o elemento tem link de produto antes de clicar
+            href = None
+            try:
+                link_el = el.locator("a").first
+                if await link_el.count() > 0:
+                    href = await link_el.get_attribute("href")
+                    if href:
+                        # Verifica se é link de produto E não é de outra categoria
+                        if not PDP_URL_RE.search(href):
+                            continue  # Não é link de produto, pula
+                        # Verifica se não é de outra categoria
+                        if re.search(r"/(homem|masculino|men|man|casa|home|decoracao)/", href, re.I):
+                            continue  # É de outra categoria, pula
+            except Exception:
+                pass
+            
             clicked = False
             for sel in _CLICK_SELECTORS:
                 try:
@@ -300,23 +390,33 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
 
             # espera SPA mudar para PDP
             try:
-                await page_or_frame.page.wait_for_url(PDP_URL_RE, timeout=8000)
+                await page.wait_for_url(PDP_URL_RE, timeout=8000)
             except Exception:
+                # Se não mudou para PDP, volta para categoria
+                if not CATEGORY_URL_BASE.search(page.url):
+                    await _ensure_category_page(page)
                 continue
 
-            u = page_or_frame.page.url
+            u = page.url
             if PDP_URL_RE.search(u) and u not in seen_urls:
                 seen_urls.add(u)
                 urls.append(u)
 
-            # volta para a categoria
+            # volta para a categoria e verifica
             try:
-                await page_or_frame.page.go_back(wait_until="domcontentloaded", timeout=15000)
+                await page.go_back(wait_until="domcontentloaded", timeout=15000)
+                await page.wait_for_timeout(1000)
+                # Verifica se voltou para a categoria correta
+                if not CATEGORY_URL_BASE.search(page.url):
+                    log.warning("go_back não retornou à categoria. Recarregando...")
+                    await robust_goto(page, category_url)
+                    await _maybe_accept_cookies(page)
+                    await _close_overlays(page)
             except Exception:
                 # recarrega categoria se necessário
-                await robust_goto(page_or_frame.page, CATEGORY_URL)
-                await _maybe_accept_cookies(page_or_frame.page)
-                await _close_overlays(page_or_frame.page)
+                await robust_goto(page, category_url)
+                await _maybe_accept_cookies(page)
+                await _close_overlays(page)
         except Exception:
             continue
     return urls
@@ -325,24 +425,43 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     found: List[str] = []
     seen = set()
 
+    # Verifica se está na categoria correta antes de começar
+    if not await _ensure_category_page(page):
+        log.error("Não foi possível garantir que está na categoria correta!")
+        return []
+
     async def add_from_ctx(ctx, tag: str):
         nonlocal found, seen
         got = await _collect_pdp_urls_in(ctx)
         if not got:
             return
-        # normaliza e agrega
+        # normaliza e agrega, filtrando apenas produtos da categoria feminino/vestuario
         buf = []
         for h in got:
             nh = _normalize_href(h)
             if nh not in seen and PDP_URL_RE.search(nh):
-                seen.add(nh)
-                buf.append(nh)
+                # Verifica se o link não leva para outras categorias (homem, casa, etc)
+                # Aceita apenas produtos ou links que não especificam outra categoria
+                if not re.search(r"/(homem|masculino|men|man|casa|home|decoracao)/", nh, re.I):
+                    seen.add(nh)
+                    buf.append(nh)
         if buf:
             log.info("  + %s -> %d URLs", tag, len(buf))
             found.extend(buf)
 
+    # Verifica URL periodicamente
+    if not CATEGORY_URL_BASE.search(page.url):
+        log.warning("URL inicial não corresponde à categoria: %s", page.url)
+        if not await _ensure_category_page(page):
+            return []
+
     # 1) no documento principal
     await add_from_ctx(page, "document")
+
+    # Verifica novamente após primeira coleta
+    if not CATEGORY_URL_BASE.search(page.url):
+        log.warning("Saiu da categoria após primeira coleta. Corrigindo...")
+        await _ensure_category_page(page)
 
     # 2) shadow/atributos/anchors varridos pelo JS (já incluso no passo 1)
     # 3) frames (se existirem)
@@ -356,24 +475,34 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
             except Exception:
                 continue
 
+    # Verifica antes de scroll/load more
     if len(found) < limit:
+        if not CATEGORY_URL_BASE.search(page.url):
+            await _ensure_category_page(page)
         await _load_more(page)
         await _auto_scroll(page)
+        # Verifica após scroll
+        if not CATEGORY_URL_BASE.search(page.url):
+            await _ensure_category_page(page)
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
     if USE_CLICK_FALLBACK and len(found) < limit:
-        extra = await _discover_by_click_in(page, limit - len(found))
+        if not CATEGORY_URL_BASE.search(page.url):
+            await _ensure_category_page(page)
+        extra = await _discover_by_click_in(page, limit - len(found), CATEGORY_URL)
         if extra:
             log.info("  + click(main) -> %d URLs", len(extra))
             found.extend(extra)
 
     if USE_CLICK_FALLBACK and len(found) < limit:
+        if not CATEGORY_URL_BASE.search(page.url):
+            await _ensure_category_page(page)
         frames = [fr for fr in page.frames if fr != page.main_frame]
         for fr in frames:
             if len(found) >= limit:
                 break
             try:
-                extra = await _discover_by_click_in(fr, limit - len(found))
+                extra = await _discover_by_click_in(fr, limit - len(found), CATEGORY_URL)
                 if extra:
                     log.info("  + click(frame) -> %d URLs", len(extra))
                     found.extend(extra)
@@ -694,7 +823,16 @@ async def main():
         await _maybe_accept_cookies(page)
         await _close_overlays(page)
 
+        # Verifica se está na categoria correta após cookies/overlays
+        if not await _ensure_category_page(page):
+            log.error("Não foi possível garantir que está na categoria correta após inicialização!")
+            await page.screenshot(path="DEBUG_wrong_category.png", full_page=True)
+            await ctx.close()
+            await browser.close()
+            return
+
         log.info("Fazendo scroll e coletando produtos (limite=%d)...", PRODUCT_LIMIT)
+        log.info("URL atual: %s", page.url)
         pdp_urls = await discover_pdp_urls(page, PRODUCT_LIMIT)
         log.info("Total de PDPs detectadas: %d", len(pdp_urls))
         for i, u in enumerate(pdp_urls, 1):
