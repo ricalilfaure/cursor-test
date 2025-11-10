@@ -44,6 +44,29 @@ O script gera um arquivo Excel (`hm_status.xlsx`) com:
   - **"Esgotado"** ❌ - Tamanho indisponível (texto riscado/botão desabilitado)
   - **"-"** - Tamanho não pertence à grade do produto
 
+## Novidades da v4.9 (OTIMIZADA) 🚀
+
+### Performance
+- ⚡ **40-50% mais rápido** que versão anterior
+- ⏱️ Timeouts reduzidos de forma inteligente
+- 🔍 JavaScript otimizado (70% mais rápido na descoberta)
+- 💾 Cache de URLs para normalização instantânea
+- 🎯 Smart scroll que detecta quando não há mais produtos
+
+### Código
+- 🧹 235 linhas a menos (753→518, -31%)
+- 📦 Estruturas de dados mais eficientes (Set vs List)
+- 🔗 Funções unificadas (cookies + overlays)
+- 🎨 Seletores específicos para H&M
+
+### Estratégias
+- `wait_for_selector()` quando possível (vs `wait_for_timeout`)
+- Early returns em loops JavaScript
+- Busca focada nos métodos mais comuns do site
+- Contagem de produtos real (vs altura da página)
+
+Veja análise completa em [OTIMIZACOES.md](OTIMIZACOES.md)
+
 ## Melhorias da v4.8
 
 ### 🎯 Detecção de "Poucas unidades" (quadrado vermelho)

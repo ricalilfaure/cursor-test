@@ -30,7 +30,20 @@ Arquivo `hm_status.xlsx` com colunas:
 - Nome do Produto
 - Tamanhos disponíveis (PP, P, M, G, GG, XG, etc. ou 32, 34, 36, etc.)
 
-## 🎯 Melhorias v4.8
+## 🎯 Melhorias v4.9 (OTIMIZADO)
+
+**🚀 Nova versão com otimizações de performance!**
+
+- ⚡ **40-50% mais rápido** que a versão anterior
+- 🎯 **Mantém mesma precisão** de detecção
+- 🧹 **Código mais limpo** (235 linhas a menos: 753→518)
+- 💾 **Cache de URLs** para normalização instantânea
+- 🔍 **Seletores específicos** para o site H&M
+- ⏱️ **Timeouts otimizados** e wait strategies inteligentes
+
+Veja detalhes em [OTIMIZACOES.md](OTIMIZACOES.md)
+
+### Melhorias v4.8
 
 ### Detecção robusta de "Poucas unidades"
 - Pseudo-elementos CSS (::before, ::after)
