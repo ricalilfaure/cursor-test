@@ -8,15 +8,18 @@ import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout, Page
 
 # ======= CONFIG =======
-CATEGORY_URL = (
+CATEGORY_URL_TEMPLATE = (
     "https://www.hm.com.br/feminino/vestuario"
     "?category-1=feminino&category-2=vestuario&fuzzy=0&operator=and"
-    "&facets=category-1%2Ccategory-2%2Cfuzzy%2Coperator&sort=score_desc&page=0"
+    "&facets=category-1%2Ccategory-2%2Cfuzzy%2Coperator&sort=score_desc&page={page}"
 )
+START_PAGE = 0
+MAX_CATEGORY_PAGES = 6
 PRODUCT_LIMIT = 5
 OUTPUT_XLSX = "hm_status.xlsx"
 HEADLESS = False
 LOG_LEVEL = "INFO"
+CATEGORY_URL = CATEGORY_URL_TEMPLATE.format(page=START_PAGE)
 
 # Descoberta de PDPs (ligue/desligue conforme necessidade)
 USE_SHADOW_SCAN = True
