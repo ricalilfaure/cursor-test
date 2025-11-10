@@ -222,6 +222,8 @@ DISCOVERY_JS = r"""
     try {
       // anchors
       root.querySelectorAll('a[href]').forEach(a => {
+        if (a.closest('[data-color-selector-hex]')) return;
+        if ((a.dataset || {}).testid === 'color-block') return;
         const h = a.getAttribute('href') || '';
         const abs = a.href || '';
         if (PDP.test(h)) out.add(h);
@@ -230,6 +232,7 @@ DISCOVERY_JS = r"""
 
       // atributos
       root.querySelectorAll('[data-href],[data-url],[data-product-url],[data-link],[onclick]').forEach(el => {
+        if (el.closest && el.closest('[data-color-selector-hex]')) return;
         const attrs = ['data-href','data-url','data-product-url','data-link','onclick'];
         for (const k of attrs) {
           const v = el.getAttribute(k);
@@ -297,7 +300,9 @@ async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
 
 async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
     urls: List[str] = []
-    anchors = page_or_frame.locator("a[href]")
+    anchors = page_or_frame.locator(
+        "article[data-fs-product-card-custom='true'] [data-carousel-image-container] a[href]"
+    )
     count = await anchors.count()
     for i in range(min(count, limit * 6)):
         if len(urls) >= limit:
