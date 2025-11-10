@@ -280,6 +280,30 @@ DISCOVERY_JS = r"""
 }
 """
 
+CARD_DISCOVERY_JS = r"""
+() => {
+  const cards = Array.from(document.querySelectorAll('article[data-fs-product-card-custom="true"]'));
+  const PDP = /\/(p\b|produto\b|product\b|productpage\b)/i;
+  const out = [];
+  const seen = new Set();
+  for (const card of cards) {
+    let anchor =
+      card.querySelector('[data-carousel-image-container] a[href]') ||
+      card.querySelector('a[data-product-card-link][href]') ||
+      card.querySelector('a[href]');
+    if (!anchor) continue;
+    if (anchor.closest('[data-color-selector-hex]')) continue;
+    const href = anchor.getAttribute('href') || anchor.href || '';
+    if (!href) continue;
+    if (!PDP.test(href)) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+    out.push(href);
+  }
+  return out;
+}
+"""
+
 
 async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
     try:
@@ -293,6 +317,24 @@ async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
             if not PDP_URL_RE.search(u):
                 continue
             # normalização simples (sem resolver URL relativa aqui; faremos em Python)
+            if u not in seen:
+                uniq.append(u)
+                seen.add(u)
+        return uniq
+    except Exception:
+        return []
+
+
+async def _collect_card_urls(page_or_frame) -> List[str]:
+    try:
+        urls = await page_or_frame.evaluate(CARD_DISCOVERY_JS)
+        uniq: List[str] = []
+        seen: Set[str] = set()
+        for u in urls:
+            if not u:
+                continue
+            if not PDP_URL_RE.search(u):
+                continue
             if u not in seen:
                 uniq.append(u)
                 seen.add(u)
@@ -361,21 +403,21 @@ async def discover_pdp_urls(page: Page, limit: Optional[int], category_url: str)
 
     await wait_for_candidates()
 
-    async def add_from_ctx(ctx, tag: str):
+    async def add_urls(urls: List[str], tag: str):
         nonlocal found, seen, seen_keys
-        got = await _collect_pdp_urls_in(ctx)
-        # normaliza e agrega
-        buf = []
-        for h in got:
-            nh = _normalize_href(h)
-            if PDP_URL_RE.search(nh):
-                key = _product_key(nh)
-                if nh not in seen and key not in seen_keys:
-                    buf.append(nh)
-                    seen.add(nh)
-                    seen_keys.add(key)
-                if limit is not None and len(found) + len(buf) >= limit:
-                    break
+        buf: List[str] = []
+        for raw in urls:
+            nh = _normalize_href(raw)
+            if not PDP_URL_RE.search(nh):
+                continue
+            key = _product_key(nh)
+            if nh in seen or key in seen_keys:
+                continue
+            buf.append(nh)
+            seen.add(nh)
+            seen_keys.add(key)
+            if limit is not None and len(found) + len(buf) >= limit:
+                break
         if buf:
             log.info("  + %s -> %d URLs", tag, len(buf))
             found.extend(buf)
@@ -383,8 +425,20 @@ async def discover_pdp_urls(page: Page, limit: Optional[int], category_url: str)
     def quota_reached() -> bool:
         return limit is not None and len(found) >= limit
 
+    # coleta ordenada via cards visíveis
+    card_urls = await _collect_card_urls(page)
+    await add_urls(card_urls, "cards")
+    if quota_reached():
+        return found[:limit] if limit is not None else found
+
+    async def add_from_ctx(ctx, tag: str):
+        got = await _collect_pdp_urls_in(ctx)
+        await add_urls(got, tag)
+
     # 1) no documento principal (conteúdo inicial)
     await add_from_ctx(page, "document")
+    if quota_reached():
+        return found[:limit] if limit is not None else found
 
     # 2) frames antes de scroll (conteúdo inicial em iframes)
     if USE_FRAME_SCAN and not quota_reached():
