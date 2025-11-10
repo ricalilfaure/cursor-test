@@ -20,7 +20,7 @@ LOG_LEVEL = "INFO"
 # Descoberta de PDPs (ligue/desligue conforme necessidade)
 USE_SHADOW_SCAN = True
 USE_FRAME_SCAN = True
-USE_CLICK_FALLBACK = True
+USE_CLICK_FALLBACK = False
 
 # Timeouts
 NAV_TIMEOUT_MS = 90_000
@@ -39,6 +39,7 @@ LABEL_AVAIL = "Disponível"
 LABEL_HYPHEN = "-"
 
 LETTER_SIZES = ["XXP", "XP", "PP", "P", "M", "G", "GG", "XG", "XXG", "XXGG", "XXGGG"]
+LETTER_ORDER = {size: idx for idx, size in enumerate(LETTER_SIZES)}
 NUMERIC_ALLOWED = {str(n) for n in range(32, 54, 2)}  # pares 32–52
 
 logging.basicConfig(
@@ -51,13 +52,22 @@ log = logging.getLogger("hm")
 # ---------------------- utils ----------------------
 
 def _order_sizes(all_sizes: List[str]) -> List[str]:
-    letters = [s for s in all_sizes if s.isalpha()]
-    nums = [s for s in all_sizes if s.isdigit()]
-    other = [s for s in all_sizes if s not in letters and s not in nums]
-    ordered_letters = sorted(letters, key=lambda x: (LETTER_SIZES.index(x) if x in LETTER_SIZES else 999, x))
-    ordered_nums = sorted(nums, key=lambda x: int(x))
-    ordered_other = sorted(other)
-    return ordered_letters + ordered_nums + ordered_other
+    letters: List[str] = []
+    nums: List[str] = []
+    other: List[str] = []
+    for s in all_sizes:
+        if s.isalpha():
+            letters.append(s)
+        elif s.isdigit():
+            nums.append(s)
+        else:
+            other.append(s)
+
+    ordered_letters = sorted(letters, key=lambda x: (LETTER_ORDER.get(x, 999), x))
+    ordered_nums = sorted(nums, key=int)
+    if other:
+        other.sort()
+    return ordered_letters + ordered_nums + other
 
 
 def _normalize_href(href: str) -> str:
@@ -229,15 +239,15 @@ DISCOVERY_JS = r"""
 async def _collect_pdp_urls_in(page_or_frame) -> List[str]:
     try:
         urls = await page_or_frame.evaluate(DISCOVERY_JS)
-        # normaliza e filtra
-        uniq = []
-        for u in urls:
+        seen = set()
+        uniq: List[str] = []
+        for u in urls or []:
             if not u:
                 continue
             if not PDP_URL_RE.search(u):
                 continue
-            # normalização simples (sem resolver URL relativa aqui; faremos em Python)
-            if u not in uniq:
+            if u not in seen:
+                seen.add(u)
                 uniq.append(u)
         return uniq
     except Exception:
@@ -294,19 +304,20 @@ async def _discover_by_click_in(page_or_frame, limit: int) -> List[str]:
 
 async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
     found: List[str] = []
+    found_set = set()
 
     async def add_from_ctx(ctx, tag: str):
-        nonlocal found
+        nonlocal found, found_set
         got = await _collect_pdp_urls_in(ctx)
-        # normaliza e agrega
-        buf = []
+        added = 0
         for h in got:
             nh = _normalize_href(h)
-            if PDP_URL_RE.search(nh) and nh not in found and nh not in buf:
-                buf.append(nh)
-        if buf:
-            log.info("  + %s -> %d URLs", tag, len(buf))
-            found.extend(buf)
+            if PDP_URL_RE.search(nh) and nh not in found_set:
+                found_set.add(nh)
+                found.append(nh)
+                added += 1
+        if added:
+            log.info("  + %s -> %d URLs", tag, added)
 
     # 1) no documento principal
     await add_from_ctx(page, "document")
@@ -330,7 +341,10 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
         extra = await _discover_by_click_in(page, limit - len(found))
         if extra:
             log.info("  + click(main) -> %d URLs", len(extra))
-            found.extend(extra)
+            for nh in extra:
+                if nh not in found_set:
+                    found_set.add(nh)
+                    found.append(nh)
 
     if USE_CLICK_FALLBACK and len(found) < limit:
         for fr in page.frames:
@@ -342,7 +356,10 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
                 extra = await _discover_by_click_in(fr, limit - len(found))
                 if extra:
                     log.info("  + click(frame) -> %d URLs", len(extra))
-                    found.extend(extra)
+                    for nh in extra:
+                        if nh not in found_set:
+                            found_set.add(nh)
+                            found.append(nh)
             except Exception:
                 continue
 
