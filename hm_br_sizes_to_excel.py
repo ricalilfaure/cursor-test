@@ -335,6 +335,18 @@ async def discover_pdp_urls(page: Page, limit: int) -> List[str]:
 
     await _load_more(page)
     await _auto_scroll(page)
+    await page.wait_for_timeout(800)
+
+    # Re-scan após carregamentos dinâmicos
+    await add_from_ctx(page, "document/after-scroll")
+    if USE_FRAME_SCAN:
+        for fr in page.frames:
+            if fr == page.main_frame:
+                continue
+            try:
+                await add_from_ctx(fr, f"frame-after:{fr.url}")
+            except Exception:
+                continue
 
     # 4) se ainda insuficiente, fallback por clique (no main e em frames)
     if USE_CLICK_FALLBACK and len(found) < limit:
