@@ -349,38 +349,19 @@ async def _collect_card_urls(page_or_frame) -> List[str]:
 async def _ensure_cards_loaded(page: Page, category_url: str, page_number: int) -> bool:
     for attempt in range(1, PAGE_RETRIES + 1):
         try:
+            await page.wait_for_selector(CARD_SELECTOR, timeout=10_000)
             count = await page.locator(CARD_SELECTOR).count()
             if count > 0:
                 return True
-            await page.wait_for_selector(CARD_SELECTOR, timeout=5_000)
-            count = await page.locator(CARD_SELECTOR).count()
-            if count > 0:
-                return True
-        except PWTimeout:
-            log.warning(
-                "Nenhum card visível na página %d (tentativa %d/%d).",
-                page_number,
-                attempt,
-                PAGE_RETRIES,
-            )
         except Exception as exc:
             log.warning(
-                "Erro ao aguardar cards na página %d (tentativa %d/%d): %s",
+                "Ainda sem cards visíveis na página %d (tentativa %d/%d): %s",
                 page_number,
                 attempt,
                 PAGE_RETRIES,
                 exc,
             )
-
-        if attempt < PAGE_RETRIES:
-            log.info("Recarregando página %d para tentar carregar os cards...", page_number)
-            try:
-                await page.goto(category_url, wait_until="domcontentloaded")
-                await page.wait_for_load_state("networkidle", timeout=15_000)
-            except Exception as exc:
-                log.warning("Falha ao recarregar página %d: %s", page_number, exc)
-            await page.wait_for_timeout(1_500)
-
+        await page.wait_for_timeout(3_000)
     return False
 
 
@@ -788,26 +769,15 @@ async def main():
                 PAGES_TO_SCAN,
                 category_url,
             )
-            success = False
-            for attempt in range(1, PAGE_RETRIES + 1):
-                try:
-                    await page.goto(category_url, wait_until="domcontentloaded")
-                    await page.wait_for_load_state("networkidle", timeout=15_000)
-                    success = True
-                    if attempt > 1:
-                        log.info("Página %d carregada com sucesso na tentativa %d.", offset + 1, attempt)
-                    break
-                except PWTimeout:
-                    log.warning("Timeout ao carregar página %d (tentativa %d/%d).", offset + 1, attempt, PAGE_RETRIES)
-                except Exception as exc:
-                    log.warning("Falha ao carregar página %d (tentativa %d/%d): %s", offset + 1, attempt, PAGE_RETRIES, exc)
-
-                if attempt < PAGE_RETRIES:
-                    await page.wait_for_timeout(2_000)
-                    continue
-            if not success:
-                log.error("Não foi possível carregar a página %d após %d tentativas; pulando.", offset + 1, PAGE_RETRIES)
-                continue
+            try:
+                await page.goto(category_url, wait_until="domcontentloaded")
+            except PWTimeout:
+                log.warning("Timeout inicial ao carregar página %d; aguardando mais tempo.", offset + 1)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=45_000)
+            except Exception:
+                log.warning("Estado 'networkidle' não atingido na página %d; seguindo mesmo assim.", offset + 1)
+            await page.wait_for_timeout(1_500)
 
             await page.wait_for_timeout(600)
             await _maybe_accept_cookies(page)
