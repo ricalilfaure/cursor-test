@@ -1,7 +1,5 @@
 # Apresentação: Análise Crítica do EIA/RIMA - Projeto Matupá (Depósito X1)
 
-> **Aviso:** Como o relatório "Trabalho semestral – AIA" e o arquivo completo do EIA/RIMA não foram fornecidos no contexto atual, esta apresentação foi gerada seguindo rigorosamente a estrutura solicitada, preenchida com as informações factuais disponíveis no enunciado e utilizando marcadores (`[COMPLETAR COM RELATÓRIO]`) onde a análise crítica específica do grupo ou a citação de página é necessária.
-
 ---
 
 ## Slide 1: Capa
@@ -11,7 +9,6 @@
 **Docentes:** Juliana Siqueira Gay e Luis Enrique Sanchez
 
 **Projeto Matupá – Depósito X1**
-
 2º Semestre de 2025
 
 **Grupo 11**
@@ -36,382 +33,368 @@ Novembro de 2025
 * Síntese crítica e recomendações
 
 **Notas do apresentador:**
-Bom dia/boa tarde. Nossa apresentação seguirá a estrutura do nosso relatório escrito. Iniciaremos com o método de análise, passaremos pela descrição do projeto e do diagnóstico, e focaremos na análise crítica dos impactos e programas, concluindo com nossas recomendações técnicas.
+Bom dia. A apresentação segue a estrutura do relatório escrito entregue. Iniciaremos com o método de análise, passaremos pela descrição do projeto e do diagnóstico, e focaremos na análise crítica dos impactos e programas, concluindo com nossas recomendações técnicas para o licenciamento.
 
 ---
 
 ## Slide 3: Objetivos do trabalho e método do grupo
 
 * **Objetivo:** Analisar qualidade técnica do EIA/RIMA e suficiência para Licença Prévia (LP)
-* **Base normativa:** Resolução CONAMA 01/86 e TR SEMA/MT
-* **Método:** Verificação de conformidade legal e consistência técnica
-* **Foco:** Rigor técnico do estudo (não a viabilidade do projeto)
-* **Análise:** Comparação TR vs. EIA e check-list de requisitos
+* **Base normativa:** Resolução CONAMA 01/86 e TR SEMA/MT (Parecer nº 138307/2020)
+* **Método:** Verificação de conformidade legal e consistência técnica (Check-list)
+* **Foco:** Rigor do estudo (descrição, diagnóstico, impactos e gestão)
+* **Ressalva:** Análise documental, sem vistoria de campo
 
 **Notas do apresentador:**
-O objetivo central do nosso grupo foi avaliar se o EIA/RIMA apresenta qualidade técnica e informações suficientes para subsidiar a decisão de viabilidade pelo órgão licenciador. Utilizamos como base a CONAMA 01/86 e o Termo de Referência da SEMA/MT. Importante ressaltar que não estamos julgando a viabilidade do projeto em si, mas a qualidade do estudo ambiental apresentado.
+O objetivo foi avaliar se o EIA fornece base consistente para decisão. Baseamo-nos na legislação e no TR emitido pela SEMA/MT. A análise focou na coerência interna entre diagnóstico, impactos e programas, sem entrar no mérito da viabilidade econômica do negócio.
 
 ---
 
 ## Slide 4: Contexto do empreendimento
 
-* **Tipologia:** Mineração de ouro
-* **Método:** Lavra a céu aberto (*open pit*)
+* **Tipologia:** Mineração de ouro a céu aberto (*open pit*)
 * **Proponente:** Aura Almas Mineração S.A.
-* **Licenciamento:** Processo SEMA/MT nº 29568/2019
-* **Objeto:** Depósito X1 (Projeto Matupá)
+* **Processo:** SEMA/MT nº 29568/2019
+* **Porte:** Médio (Movimentação ~3,4 Mt/ano de minério + estéril)
+* **Produto:** Barras de *doré* (Ouro)
 
 **Notas do apresentador:**
-O Projeto Matupá, de titularidade da Aura Almas Mineração, refere-se à exploração de ouro no Depósito X1. Trata-se de uma lavra a céu aberto convencional. O processo de licenciamento corre na Secretaria de Estado de Meio Ambiente do Mato Grosso (SEMA/MT) sob o número indicado.
+O Projeto Matupá visa a exploração do Depósito X1. É um empreendimento de porte médio, com movimentação anual de 3,4 milhões de toneladas. O licenciamento corre na SEMA Mato Grosso visando a Licença Prévia.
 
 ---
 
 ## Slide 5: Localização regional e acesso
 
-* **Município:** Matupá (MT), região norte do estado
-* **Localização:** Zona rural, Fazenda Simioni
-* **Acesso:** Rodovia BR-163 (importante eixo logístico)
-* **Contexto:** Área consolidada de uso agropecuário e mineral
+* **Município:** Matupá (MT), zona rural (Fazenda Simioni)
+* **Distância:** ~10 km do núcleo urbano
+* **Acesso:** Margens da Rodovia BR-163 (logística consolidada)
+* **Contexto:** Área antropizada (agropecuária e garimpos antigos)
 
-**Figura sugerida:** Mapa de localização regional (EIA/RIMA)
-*Legenda: Figura 1 – Localização regional do Projeto Matupá – Depósito X1. Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+**Figura:** Mapa de localização regional (Figura 1 do Relatório)
+*Legenda: Figura 1 – Localização do empreendimento Projeto Matupá – Depósito X1. Fonte: EIA/RIMA (AURA ALMAS MINERAÇÃO S.A., 2021, v.1, Cap. II).*
 
 **Notas do apresentador:**
-O empreendimento localiza-se na zona rural de Matupá, especificamente na Fazenda Simioni. O acesso principal se dá pela BR-163, o que facilita a logística. A região já apresenta histórico de antropização e atividades econômicas consolidadas.
+Localiza-se na Fazenda Simioni, a 10 km da cidade de Matupá, com acesso fácil pela BR-163. A região já é marcada pelo uso agropecuário e histórico de garimpo, não sendo uma área de fronteira intocada.
 
 ---
 
 ## Slide 6: Áreas de influência (ADA/AID/AII)
 
-* **Definição:** Delimitação distinta para meios físico, biótico e socioeconômico
-* **ADA (Área Diretamente Afetada):** Restrita às estruturas do projeto (~ [INSERIR ÁREA] ha)
-* **AID (Área de Influência Direta):** Bacias hidrográficas e áreas de entorno imediato
-* **AII (Área de Influência Indireta):** Contexto regional (município de Matupá)
+* **Critério:** Integrado (bacias hidrográficas, limites administrativos e ecológicos)
+* **ADA (118,72 ha):** Cava, planta, pilhas, barragem e acessos
+* **AID:** Microbacia do Córrego São José e entorno imediato (raio ~10km)
+* **AII:** Município de Matupá e bacias regionais
 
-**Figura sugerida:** Mapa integrado de ADA/AID/AII
-*Legenda: Figura 2 – Delimitação das Áreas de Influência (ADA, AID, AII). Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+**Figura:** Mapa de ADA/AID/AII (se disponível)
+*Legenda: Figura 2 – Delimitação das Áreas de Influência. Fonte: EIA/RIMA (AURA ALMAS MINERAÇÃO S.A., 2021, v.1, Cap. V).*
 
 **Notas do apresentador:**
-O estudo define as áreas de influência seguindo os critérios usuais. A ADA engloba a área de intervenção direta das obras. Observamos que a delimitação buscou respeitar divisores hidrográficos para o meio físico e limites territoriais administrativos para o socioeconômico.
+A ADA se restringe às estruturas físicas (118 ha). A AID considerou a microbacia local para meio físico e biótico. O estudo justifica as delimitações, atendendo ao esperado para mineração, diferenciando as escalas de impacto direto e indireto.
 
 ---
 
 ## Slide 7: Termo de Referência (TR) — identificação
 
-* **Emissor:** SEMA/MT (Secretaria de Estado de Meio Ambiente)
-* **Documento:** Parecer Técnico nº [INSERIR Nº] / [ANO]
-* **Data de emissão:** [INSERIR DATA]
-* **Função:** Orientar o escopo e conteúdo mínimo do EIA
+* **Emissor:** SEMA/MT
+* **Documento:** Parecer Técnico nº 138307/CMIN/SUIMIS/2020 (09/09/2020)
+* **Aditivo:** Emitido em 14/09/2020
+* **Status:** TR formal para Licença Prévia (LP)
 
 **Notas do apresentador:**
-O Termo de Referência foi emitido pela SEMA/MT. Este documento é fundamental pois estabelece as regras do jogo, definindo o conteúdo mínimo obrigatório que o EIA deve apresentar para ser aceito para análise.
+O TR foi emitido em 2020 pela SEMA/MT. Ele define o escopo mínimo. O EIA declara seguir este documento, que orientou a estrutura dos capítulos apresentados.
 
 ---
 
 ## Slide 8: TR — exigências centrais
 
-* **Diagnóstico:** Exigência de dados primários (campanhas de campo)
-* **Metodologias:** Indicação de normas técnicas específicas para coleta
-* **Impactos:** Obrigatoriedade de matriz de impactos e medidas mitigadoras
-* **Modelagem:** Solicitação de modelos para dispersão atmosférica/ruídos (se houver)
-
-**Figura/Quadro sugerido:** Quadro-síntese dos requisitos do TR (se disponível no EIA ou elaborado pelo grupo)
-*Legenda: Quadro 1 – Principais exigências do TR SEMA/MT. Fonte: Elaboração do grupo com base no EIA (p. [INSERIR PÁGINA]).*
+* **Estrutura:** Compatível com CONAMA 01/86
+* **Diagnóstico:** Exigência de delimitação diferenciada por meio
+* **Metodologia:** Avaliação de riscos e alternativas tecnológicas/locacionais
+* **Observação:** O TR integral está anexo, não no corpo do texto principal
 
 **Notas do apresentador:**
-O TR focou bastante na qualidade do diagnóstico, exigindo campanhas de campo representativas, especialmente para o meio biótico. Também houve exigência clara quanto à metodologia de avaliação de impactos e proposição de programas de controle.
+O TR exigiu os componentes clássicos: diagnóstico por meios, alternativas e avaliação de riscos. A estrutura do EIA reflete essas exigências, sugerindo aderência às diretrizes do órgão ambiental.
 
 ---
 
 ## Slide 9: TR × EIA — atendimento e lacunas
 
-* **Pontos atendidos:** Estrutura geral, diagnósticos básicos, trâmite administrativo
-* **Lacuna identificada:** [INSERIR LACUNA 1 DO RELATÓRIO - Ex: Falta de matriz de conformidade explícita]
-* **Lacuna identificada:** [INSERIR LACUNA 2 DO RELATÓRIO - Ex: Detalhamento insuficiente em hidrogeologia]
-* **Conclusão:** Atendimento [parcial/total] dos itens críticos
+* **Atendimento:** Cobre todas as partes estruturantes (Diagnóstico, Impactos, PBA)
+* **Lacuna 1:** Ausência de **matriz de conformidade** no Volume 1 (dificulta rastreio)
+* **Lacuna 2:** Não transcrição do TR no corpo do texto (reduz transparência do scoping)
+* **Conclusão:** Conformidade geral, mas com dificuldade de verificação pontual
 
 **Notas do apresentador:**
-Na nossa análise comparativa, verificamos que o EIA atendeu aos requisitos macro do TR. No entanto, identificamos lacunas pontuais, como a ausência de [citar lacuna principal], o que dificulta a verificação imediata de conformidade por parte do analista ambiental.
+Embora o EIA cubra os itens macro, a falta de uma matriz de atendimento explícita no volume principal é uma falha. Isso obriga o analista a "caçar" as respostas no texto, dificultando verificar se prioridades específicas do scoping foram atendidas.
 
 ---
 
 ## Slide 10: Descrição do projeto — fases
 
-* **Planejamento:** Estudos, licenças e aquisição de áreas
-* **Implantação:** Abertura de acessos, supressão vegetal, obras civis
-* **Operação:** Lavra, beneficiamento, disposição de rejeitos
-* **Desativação:** Desmobilização, reabilitação ambiental e fechamento
+* **Planejamento:** Estudos e licenças
+* **Implantação (Pico ~600 empregos):** Supressão, terraplenagem, montagem industrial
+* **Operação (171 próprios + 180 terceiros):** Lavra, beneficiamento, disposição de rejeitos
+* **Desativação:** Desmobilização e recuperação ambiental
 
 **Notas do apresentador:**
-O projeto segue o ciclo de vida clássico da mineração. A fase de implantação concentra os impactos de supressão e obras, enquanto a operação, que durará aproximadamente [INSERIR ANOS] anos, envolve a lavra e o processamento contínuo. O plano de fechamento também é contemplado.
+O ciclo de vida é padrão. A implantação gera pico de empregos e supressão vegetal. A operação estabiliza com cerca de 350 trabalhadores. A fase de desativação é citada, mas com menor detalhamento executivo nesta etapa de LP.
 
 ---
 
 ## Slide 11: Lavra
 
-* **Método:** Céu aberto (*open pit*) convencional em bancadas
-* **Ciclo:** Decapeamento → Desmonte (fogo) → Carga → Transporte
-* **Destino:** Minério para planta; Estéril para pilhas
-* **Cava final:** Área projetada de [INSERIR ÁREA] ha e profundidade de [INSERIR PROFUNDIDADE] m
+* **Método:** Céu aberto (*open pit*) em bancadas
+* **Cava Final:** ~11,56 ha de área e ~150 m de profundidade
+* **Relação Estéril/Minério:** Média de 1,43
+* **Operação:** Perfuração, desmonte (explosivos), carga e transporte
 
-**Figura sugerida:** Seção transversal da cava final ou plano de lavra
-*Legenda: Figura 3 – Concepção da cava final do Depósito X1. Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+**Figura:** Layout da Cava (se houver)
+*Legenda: Figura 3 – Esquema da lavra a céu aberto. Fonte: EIA/RIMA (AURA ALMAS MINERAÇÃO S.A., 2021, v.1, Cap. III).*
 
 **Notas do apresentador:**
-A lavra será realizada por bancadas descendentes. O processo envolve desmonte com explosivos, o que gera preocupações com ruído e vibração. A geometria da cava final resultará em uma alteração topográfica permanente e significativa na área da Fazenda Simioni.
+A lavra deixará uma cava final profunda (~150m). A relação estéril/minério é de 1,43, típica para este tipo de depósito. O uso de explosivos é ponto de atenção para ruído e vibração na vizinhança.
 
 ---
 
 ## Slide 12: Beneficiamento e rota metalúrgica
 
-* **Cominuição:** Britagem e Moagem
+* **Cominuição:** Britagem + Moagem (Moinho SAG)
 * **Processo:** CIL (Carbon-in-Leach) – Lixiviação com cianeto
-* **Tratamento:** Detoxificação de polpa (destruição de cianeto)
-* **Recuperação:** Eluição e Eletrodeposição
-* **Produto final:** Barras de *doré* (Ouro)
+* **Tratamento:** Etapa de **Detoxificação** (destruição de cianeto)
+* **Disposição:** Espessamento e Filtragem de rejeitos
 
-**Figura sugerida:** Fluxograma simplificado do beneficiamento
-*Legenda: Figura 4 – Fluxograma do processo de beneficiamento mineral. Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+**Figura:** Fluxograma de Beneficiamento
+*Legenda: Figura 4 – Fluxograma do processo (CIL e Detox). Fonte: EIA/RIMA (AURA ALMAS MINERAÇÃO S.A., 2021, v.1, Cap. III).*
 
 **Notas do apresentador:**
-A rota de beneficiamento utiliza cianetação convencional (CIL). Um ponto crítico é o uso de cianeto, que demanda rigoroso controle. O projeto prevê uma etapa específica de "Detox" para reduzir a carga de cianeto no rejeito antes da disposição, o que é positivo.
+O processo usa cianeto (CIL), o que exige rigoroso controle. O diferencial positivo é a inclusão de etapa de "Detox" e filtragem do rejeito, reduzindo o risco químico e geotécnico da disposição final.
 
 ---
 
 ## Slide 13: Disposição de rejeitos e estéril
 
-* **Tecnologia:** Filtragem de rejeitos (redução de umidade)
-* **Disposição:** Empilhamento a seco (*dry stacking*)
-* **Vantagem:** Elimina necessidade de grandes barragens de rejeito fluido
-* **Estéril:** Disposto em pilhas controladas junto à cava
+* **Tecnologia:** **Empilhamento a seco (*Dry Stacking*)**
+* **Vantagem:** Elimina barragens de rejeito fluido (maior segurança)
+* **Infraestrutura:** Filtro prensa, correias e empilhadeira
+* **Estéril:** Pilhas controladas adjacentes à cava
 
-**Figura sugerida:** Layout da pilha de rejeitos/estéril
-*Legenda: Figura 5 – Área de disposição de rejeitos filtrados (Dry Stacking). Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+**Figura:** Esquema de Dry Stacking
+*Legenda: Figura 5 – Disposição de rejeitos filtrados. Fonte: EIA/RIMA (AURA ALMAS MINERAÇÃO S.A., 2021, v.1, Cap. III).*
 
 **Notas do apresentador:**
-Um destaque tecnológico do projeto é a opção por rejeito filtrado e empilhamento a seco. Isso reduz significativamente o risco geotécnico e ambiental se comparado a barragens de rejeito convencionais, alinhando-se às melhores práticas atuais do setor.
+A opção pelo dry stacking (rejeito filtrado) é a "Melhor Tecnologia Disponível" para a região plana, mitigando riscos de ruptura de barragem. É um ponto forte do projeto em termos de segurança.
 
 ---
 
 ## Slide 14: Estruturas principais e layout geral
 
-* **Componentes:** Cava, Planta de Beneficiamento, Pilhas (Estéril/Rejeito)
-* **Apoio:** Paiol de explosivos, Oficina, Administrativo, Aterro
-* **Infraestrutura:** Linha de Transmissão e Subestação dedicada
-* **Ocupação:** Arranjo compacto visando otimizar a ADA
+* **Área Industrial:** Planta, oficinas, administrativo
+* **Mina:** Cava, pilhas de estéril e rejeito, paiol
+* **Hidráulica:** Reservatório, captação (Rio Porcão), adutoras
+* **Energia:** Linha de Transmissão e Subestação 138 kV
 
-**Figura sugerida:** Layout geral (Planta de Situação)
-*Legenda: Figura 6 – Layout geral do empreendimento e estruturas principais. Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+**Figura:** Layout Geral (Figura 4 do Relatório)
+*Legenda: Figura 6 – Layout geral do empreendimento. Fonte: EIA/RIMA (AURA ALMAS MINERAÇÃO S.A., 2021, v.1, Cap. III).*
 
 **Notas do apresentador:**
-O layout integra todas as estruturas operacionais e de apoio. A proximidade entre a cava, a planta e as pilhas busca reduzir distâncias de transporte, diminuindo emissões e custos, mas concentra os impactos em uma área contígua.
+O layout concentra as estruturas na ADA de 118 ha. Inclui captação no Rio Porcão e linha de transmissão própria. A proximidade das pilhas com a planta otimiza o transporte interno.
 
 ---
 
 ## Slide 15: Alternativas consideradas
 
-* **Alternativa Zero:** Não realização (perda de receitas e *royalties*)
-* **Tecnológicas:** Comparação entre barragem convencional vs. rejeito filtrado
-* **Locacionais:** Ajustes no posicionamento das pilhas dentro da fazenda
-* **Análise:** EIA privilegia a alternativa econômica/técnica viável
+* **Alternativa Zero:** Não discutida formalmente (lacuna do EIA)
+* **Tecnológicas:** Barragem convencional (descartada) vs. **Rejeito Filtrado** (escolhida)
+* **Locacionais:** Restritas ao posicionamento interno das pilhas/planta
+* **Crítica:** Faltou matriz multicritério clara para locação das estruturas
 
 **Notas do apresentador:**
-O EIA discute a alternativa zero, descartando-a pela perda de benefícios econômicos. Nas alternativas tecnológicas, a escolha pelo rejeito filtrado foi bem justificada ambientalmente. As alternativas locacionais foram restritas aos limites da propriedade e da jazida mineral.
+O EIA acerta na escolha tecnológica do rejeito filtrado, mas falha ao não detalhar a alternativa zero ou apresentar uma comparação locacional robusta (matriz multicritério) para as pilhas e planta.
 
 ---
 
 ## Slide 16: Diagnóstico ambiental — visão geral
 
-* **Escopo:** Meios Físico, Biótico e Socioeconômico
-* **Dados:** Combinação de dados secundários e primários
-* **Campanhas:** Realizadas em [INSERIR PERÍODO - ex: chuva e seca]
-* **Qualidade:** Base de informações para prognóstico de impactos
-
-**Figura sugerida:** Quadro síntese do esforço amostral (se houver)
-*Legenda: Figura 7 – Síntese das campanhas de diagnóstico ambiental. Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+* **Volume:** ~486 páginas (Caps. VI–VII)
+* **Dados:** Secundários (regionais) + Primários (campanhas 2021)
+* **Abrangência:** Meios Físico, Biótico e Socioeconômico
+* **Qualidade:** Robusto, mas com pontos de complementação necessários
 
 **Notas do apresentador:**
-O diagnóstico ambiental constitui a linha de base do estudo. O EIA apresentou dados para os três meios. É fundamental que esse retrato seja fiel para que as previsões de impacto sejam realistas. Verificamos a adequação das campanhas sazonais.
+O diagnóstico é extenso e cobre os três meios. A base de dados combina informações bibliográficas com coletas de campo recentes (2021), oferecendo uma linha de base adequada para a maioria dos temas.
 
 ---
 
 ## Slide 17: Meio físico — principais achados
 
-* **Geologia:** Contexto do Depósito X1 e litologias locais
-* **Hidrologia:** Caracterização dos corpos hídricos superficiais na ADA/AID
-* **Água Subterrânea:** Nível freático e qualidade original
-* **Ar/Ruído:** Monitoramento de *background* antes da operação
+* **Geologia:** Caracterização do depósito e litologias
+* **Hidrologia:** Rio Porcão e Córrego São José (bacia local)
+* **Água Subterrânea:** Interação com a cava (rebaixamento necessário)
+* **Qualidade:** Monitoramento de background (ar, ruído, água) realizado
 
 **Notas do apresentador:**
-No meio físico, destacamos a caracterização hidrogeológica, essencial para entender a interação da cava com o lençol freático. O diagnóstico de qualidade do ar e ruído pré-operacional também é crucial para servir de comparativo futuro durante a operação das máquinas.
+Destaque para a hidrogeologia, essencial para prever o cone de rebaixamento da cava. A caracterização da qualidade da água superficial estabelece o padrão pré-operacional para monitoramento futuro.
 
 ---
 
 ## Slide 18: Meio biótico — vegetação/flora
 
-* **Bioma:** Amazônia (transição/área antropizada)
-* **Fitofisionomias:** Floresta Estacional / Áreas de pastagem
-* **Supressão:** Estimada em [INSERIR ÁREA] ha
-* **APP:** Interferência em Áreas de Preservação Permanente (se houver)
+* **Fitofisionomias:** Floresta Ombrófila, Mata de Galeria, Pastagem
+* **ADA:** 118,72 ha (83% pastagem / 11% floresta / 6% mata ciliar)
+* **Impacto em Áreas Protegidas:** Supressão em **APP** (4,97 ha) e **RL** (14,72 ha)
+* **Esforço:** 64 parcelas (suficiente para caracterização)
 
-**Figura sugerida:** Mapa de uso do solo e cobertura vegetal
-*Legenda: Figura 8 – Mapa de cobertura vegetal e áreas de supressão. Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+**Figura:** Mapa de Vegetação
+*Legenda: Figura 7 – Cobertura vegetal e supressão. Fonte: EIA/RIMA (AURA ALMAS MINERAÇÃO S.A., 2021, v.1, Cap. VI).*
 
 **Notas do apresentador:**
-A área está inserida no bioma Amazônia, mas em região bastante antropizada. O levantamento florístico identificou as fisionomias presentes e quantificou a supressão necessária. Avaliamos se o esforço amostral foi suficiente para detectar espécies raras ou ameaçadas.
+A área é antropizada (83% pastagem), mas o projeto interfere em áreas sensíveis: APP (quase 5 ha) e Reserva Legal. O inventário florestal foi adequado para quantificar essa supressão e definir compensações.
 
 ---
 
 ## Slide 19: Meio biótico — fauna
 
-* **Grupos:** Avifauna, Herpetofauna, Mastofauna, Ictiofauna
-* **Esforço:** [INSERIR Nº] campanhas sazonais
-* **Destaques:** Registro de espécies ameaçadas/endêmicas (se houver)
-* **Conectividade:** Análise de corredores ecológicos locais
+* **Campanhas:** 2 para terrestres (seca/chuva); 1 para ictiofauna/entomo
+* **Riqueza:** 183 aves, 23 mamíferos, 23 herpeto, 21 peixes
+* **Destaque:** Registros de espécies ameaçadas (ex: *Tapirus terrestris*)
+* **Crítica:** Ictiofauna precisa de campanha complementar (curva não estabilizou)
 
-**Figura sugerida:** Pontos de amostragem de fauna
-*Legenda: Figura 9 – Localização dos pontos de amostragem de fauna. Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+**Figura:** Pontos de Amostragem
+*Legenda: Figura 8 – Pontos de amostragem de fauna. Fonte: EIA/RIMA (AURA ALMAS MINERAÇÃO S.A., 2021, v.1, Cap. VI).*
 
 **Notas do apresentador:**
-Para a fauna, foram inventariados os principais grupos de vertebrados. A análise crítica do grupo focou em verificar se o número de campanhas atendeu à sazonalidade regional e se a riqueza de espécies encontrada condiz com o esperado para a região.
+O esforço para fauna terrestre foi bom (2 campanhas). Já para peixes, a curva de rarefação indica necessidade de complementação. A presença de espécies ameaçadas na ADA exige programas de afugentamento rigorosos.
 
 ---
 
 ## Slide 20: Meio socioeconômico
 
-* **População:** Caracterização demográfica de Matupá
-* **Economia:** Dependência do agronegócio e mineração
-* **AID/AII:** Identificação de comunidades próximas e fazendas vizinhas
-* **Infraestrutura:** Pressão sobre serviços públicos (saúde/educação)
+* **População:** Matupá (~14 mil hab), alta taxa de urbanização (77%)
+* **Economia:** Agronegócio e Mineração
+* **Levantamento:** Dados secundários + Entrevistas (vizinhança e prefeitura)
+* **Arqueologia:** Identificação de sítios e medidas de salvaguarda
 
 **Notas do apresentador:**
-O diagnóstico socioeconômico mapeou a realidade de Matupá. O foco principal são os receptores sensíveis no entorno imediato (vizinhos da fazenda) e a capacidade do município em absorver o fluxo migratório de trabalhadores, ainda que temporário.
+O diagnóstico social caracterizou bem a dependência econômica local da mineração e agropecuária. Foram feitas entrevistas na vizinhança imediata (AID), mapeando a sensibilidade dos receptores próximos.
 
 ---
 
 ## Slide 21: Identificação de impactos — método
 
-* **Metodologia:** [INSERIR MÉTODO - ex: Matriz de Leopold modificada / Checklists]
-* **Abordagem:** Cruzamento: Ações do Projeto x Componentes Ambientais
-* **Classificação:** Positivo/Negativo, Direto/Indireto, Reversibilidade, etc.
-* **Sistemática:** Segregação por fases (Instalação, Operação, Fechamento)
-
-**Figura sugerida:** Recorte da Matriz de Impactos
-*Legenda: Figura 10 – Exemplo da matriz de avaliação de impactos do EIA. Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+* **Ferramenta:** Matriz de interação (Ações x Componentes Ambientais)
+* **Critérios:** Natureza, Abrangência, Duração, Reversibilidade, Magnitude
+* **Abordagem:** Qualitativa (baseada em especialistas e literatura)
+* **Sistemática:** Segregação clara por fases (Implantação, Operação, Fechamento)
 
 **Notas do apresentador:**
-O EIA utilizou uma matriz de interação para identificar os impactos. O método cruzou as atividades de cada fase com os componentes ambientais. Analisamos se a metodologia foi clara e se permitiu uma hierarquização adequada dos impactos.
+A avaliação usou matriz qualitativa clássica. O método é organizado e rastreável, mas peca pela subjetividade na atribuição de magnitude ("média" ou "alta") sem parâmetros numéricos claros em alguns casos.
 
 ---
 
 ## Slide 22: Principais impactos por fase
 
-* **Implantação:** Perda de habitat (supressão), poeira, ruído, erosão
-* **Operação:** Alteração da qualidade da água, vibração, geração de rejeitos
-* **Socioeconômico:** Geração de empregos (+), pressão infraestrutura (-), arrecadação (+)
-* **Fechamento:** Recuperação topográfica, riscos de passivos
+* **Implantação:** Supressão vegetal, perda de habitat, poeira, ruído
+* **Operação:** Rebaixamento lençol freático, risco drenagem ácida, vibração
+* **Socioeconômico:** Geração de emprego (+), pressão em serviços (-), arrecadação (+)
+* **Fechamento:** Reconformação topográfica e desmobilização
 
 **Notas do apresentador:**
-Os impactos mais significativos concentram-se na supressão vegetal na fase inicial e nas alterações físicas e riscos associados aos rejeitos na operação. Do lado positivo, destaca-se a dinamização econômica local e geração de tributos.
+Os impactos chave são a supressão inicial e, na operação, as alterações hídricas e riscos geotécnicos. Socialmente, o "boom" de empregos traz bônus (renda) e ônus (pressão em saúde/educação).
 
 ---
 
 ## Slide 23: Avaliação de significância
 
-* **Critérios:** Magnitude, abrangência, duração e reversibilidade
-* **Escala:** Baixa, Média e Alta significância
-* **Subjetividade:** Análise da justificativa atribuída pelos consultores
-* **Participação:** [Houve/Não houve] consulta pública nesta etapa
+* **Classificação:** Baixa, Média e Alta importância
+* **Limitação:** Baseada em julgamento técnico qualitativo
+* **Falha:** Resultados de modelagens (ex: ruído/água) pouco integrados à matriz
+* **Participação:** Sem evidência de co-avaliação com a sociedade
 
 **Notas do apresentador:**
-A avaliação de significância é o coração do EIA. Observamos como o estudo graduou os impactos. É comum haver uma tendência a subestimar impactos negativos e superestimar positivos; nossa análise buscou identificar se houve esse viés na matriz apresentada.
+A significância foi definida tecnicamente. Faltou integrar melhor os resultados quantitativos (modelagens) na justificativa da magnitude. Também não houve participação social na valoração dos impactos.
 
 ---
 
 ## Slide 24: Impactos cumulativos e riscos
 
-* **Cumulatividade:** [Análise do grupo: O EIA considerou outros projetos na região?]
-* **Riscos Tecnológicos:** Ruptura de pilhas, vazamento de cianeto, acidentes
-* **Plano de Ação:** PAE (Plano de Ação de Emergência)
-* **Lacuna:** [Inserir se a análise de risco foi superficial ou robusta]
+* **Cumulatividade:** Pouco desenvolvida (não considera expansão regional agro/minera)
+* **Riscos:** Focados em cianeto e geotecnia (anexos técnicos)
+* **Visibilidade:** Riscos de "baixa probabilidade/alto dano" discretos na matriz principal
+* **Crítica:** Necessária análise integrada de bacia hidrográfica
 
 **Notas do apresentador:**
-Verificamos se o EIA tratou dos impactos cumulativos, considerando outras atividades na bacia. Quanto aos riscos, o foco foi na segurança das pilhas de rejeito a seco e no manuseio de produtos perigosos como o cianeto.
+Uma lacuna importante é a análise de impactos cumulativos, que ignora a dinâmica regional de expansão do agro. Os riscos catastróficos (ex: vazamento de cianeto) estão nos anexos, mas pouco visíveis na síntese de impactos.
 
 ---
 
 ## Slide 25: Programas ambientais — panorama
 
-* **Total:** Conjunto de [INSERIR Nº] programas propostos
-* **Estrutura:** Programas de Monitoramento, Controle e Compensação
-* **Vinculação:** Correspondência direta com os impactos significativos
-* **Fases:** Cobrem desde a instalação até o pós-fechamento
-
-**Figura sugerida:** Quadro resumo dos programas ambientais
-*Legenda: Quadro 2 – Lista de programas ambientais propostos. Fonte: (AURA ALMAS MINERAÇÃO S.A., 2021, v.X, p. [INSERIR PÁGINA]).*
+* **Eixos:** Gestão interna, Monitoramento (Físico/Biótico), Recuperação, Social, Riscos
+* **Coerência:** Boa correspondência entre impactos significativos e programas
+* **Destaque:** Programa de Gestão Ambiental (PGA) com ciclo PDCA
+* **Lacuna:** Metas sociais genéricas
 
 **Notas do apresentador:**
-O Plano Básico Ambiental (PBA) preliminar apresenta os programas para gerenciar os impactos. Analisamos se para cada impacto significativo identificado existe, de fato, um programa correspondente para mitigá-lo ou monitorá-lo.
+O Plano Básico Ambiental (PBA) preliminar é abrangente. Existe um programa para cada impacto relevante. O PGA estrutura bem a gestão interna. A fragilidade está na definição de metas para os programas sociais.
 
 ---
 
-## Slide 26: Programas detalhados (Exemplo 1)
+## Slide 26: Programas detalhados (Exemplo Positivo)
 
-* **Programa:** [INSERIR NOME - ex: Programa de Controle de Processos Erosivos]
-* **Objetivo:** Minimizar carreamento de sedimentos para cursos d'água
-* **Ações:** Drenagem, bacias de sedimentação, hidrossemeadura
-* **Indicadores:** Turbidez na água, volume de sedimentos retidos
+* **Programa:** **Recuperação de Áreas Degradadas (PRAD)**
+* **Ações:** Reconformação, controle de erosão, plantio de nativas
+* **Indicadores:** Monitoramento de sucesso da revegetação
+* **Avaliação:** Robusto, prevê ações corretivas e integração com fechamento
 
 **Notas do apresentador:**
-Como exemplo de consistência, citamos o Programa de Controle de Erosão. Ele apresenta ações claras de engenharia e bioengenharia, com indicadores mensuráveis de eficácia, demonstrando robustez técnica para proteger os recursos hídricos.
+O PRAD é um exemplo positivo, detalhando ações de engenharia e bioengenharia. Ele é essencial para mitigar a supressão vegetal e garantir o uso futuro da área após a mineração.
 
 ---
 
-## Slide 27: Programas detalhados (Exemplo 2)
+## Slide 27: Programas detalhados (Exemplo Crítico)
 
-* **Programa:** [INSERIR NOME - ex: Programa de Monitoramento de Fauna]
-* **Crítica:** [INSERIR CRÍTICA DO GRUPO - ex: Periodicidade inadequada ou falta de bioindicadores]
-* **Recomendação:** Ajustar frequência para sazonalidade trimestral
-* **Ponto de atenção:** Necessidade de maior detalhamento metodológico
+* **Programa:** **Comunicação Social e Educação Ambiental**
+* **Crítica:** Objetivos genéricos ("manter diálogo")
+* **Falta:** Metas quantitativas (nº eventos, alcance) e indicadores de eficácia
+* **Risco:** Tornar-se apenas protocolar sem participação efetiva
 
 **Notas do apresentador:**
-Por outro lado, o Programa de Fauna apresentou deficiências. Notamos que a periodicidade proposta pode não ser suficiente para captar variações sazonais importantes. Recomendamos, portanto, um ajuste no cronograma de monitoramento.
+Já os programas sociais carecem de indicadores de resultado. Prometer "dialogar" é vago; faltam metas como "realizar X reuniões trimestrais" ou "atingir Y% da população vizinha".
 
 ---
 
 ## Slide 28: Coerência interna e qualidade do EIA/RIMA
 
-* **Fio condutor:** O diagnóstico embasa a avaliação de impactos? (Sim/Parcialmente)
-* **Mitigação:** As medidas propostas são viáveis e tecnicamente consagradas?
-* **Clareza:** Linguagem acessível no RIMA vs. Técnica no EIA
-* **Pontos fortes:** [INSERIR PONTO FORTE - ex: Qualidade dos mapas / Tecnologia de rejeitos]
-* **Pontos fracos:** [INSERIR PONTO FRACO - ex: Análise socioeconômica genérica]
+* **Pontos Fortes:** Escolha do rejeito filtrado (Dry Stacking); Diagnóstico robusto
+* **Pontos Fracos:** Análise de alternativas limitada; Falta de cumulatividade
+* **RIMA:** Linguagem acessível, mas minimiza riscos e incertezas
+* **Síntese:** Estudo metodologicamente organizado, mas conservador na análise de riscos
 
 **Notas do apresentador:**
-Avaliando o estudo como um todo, há coerência entre o projeto descrito e os impactos previstos. O EIA é visualmente bem construído. Contudo, a análise socioeconômica poderia ser mais aprofundada quanto aos impactos na dinâmica urbana de Matupá.
+O EIA tem boa qualidade técnica na engenharia (rejeitos) e diagnóstico. Peca na visão estratégica (alternativas e cumulatividade). O RIMA comunica bem os benefícios, mas suaviza os riscos para o público leigo.
 
 ---
 
 ## Slide 29: Recomendações para decisão
 
-* **Parecer:** O EIA fornece base para a Licença Prévia, mediante condicionantes.
-* **Condicionante 1:** Complementação do estudo de [INSERIR TEMA]
-* **Condicionante 2:** Detalhamento do Plano de Fechamento
-* **Condicionante 3:** Ajuste nos programas de monitoramento hídrico
-* **Postura:** Aprovação técnica com ressalvas (sem julgar mérito do negócio)
+* **1. Alternativas:** Exigir matriz multicritério para locação de estruturas
+* **2. Cumulatividade:** Apresentar cenários de evolução da bacia hidrográfica
+* **3. Social:** Definir indicadores claros para programas e fórum local de acompanhamento
+* **4. Riscos:** Dar visibilidade aos cenários acidentais na matriz de impactos
+* **Parecer:** **Apto a subsidiar a LP**, mediante condicionantes.
 
 **Notas do apresentador:**
-Concluímos que o EIA/RIMA, apesar das lacunas apontadas, apresenta qualidade técnica suficiente para ser analisado, desde que o órgão ambiental exija complementações via condicionantes na Licença Prévia. Recomendamos foco especial no monitoramento hídrico.
+Recomendamos a aprovação técnica, mas com condicionantes fortes: aprofundar alternativas locacionais, apresentar estudo de impactos cumulativos e definir metas claras para a gestão social.
 
 ---
 
 ## Slide 30: Conclusões e agradecimentos
 
-* **Síntese:** Trabalho permitiu aplicação prática dos conceitos da disciplina
-* **Aprendizado:** Complexidade do licenciamento de mineração na Amazônia
-* **Limitação:** Análise restrita aos documentos, sem visita de campo
-* **Encerramento:** O grupo agradece a atenção.
+* **Conclusão:** O EIA atende aos requisitos legais básicos para análise
+* **Aprendizado:** Importância da "lupa" crítica sobre métodos qualitativos
+* **Limitação:** Análise restrita aos documentos (sem campo)
+* **Agradecimento:** O grupo agradece a atenção.
 * **Muito obrigado!**
 
 **Notas do apresentador:**
-Este trabalho foi fundamental para entendermos a complexidade de um EIA real na Amazônia. Reconhecemos as limitações da análise apenas documental. Agradecemos aos professores e colegas pela atenção. Estamos à disposição.
+Concluímos que o EIA é uma peça técnica válida, apesar das ressalvas. O exercício nos mostrou como a subjetividade permeia a avaliação de impactos. Agradecemos a oportunidade.
