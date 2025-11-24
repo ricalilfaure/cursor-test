@@ -41,7 +41,7 @@ Bom dia. A apresentação segue a estrutura do relatório escrito entregue. Inic
 
 * **Objetivo:** Analisar qualidade técnica do EIA/RIMA e suficiência para Licença Prévia (LP)
 * **Base normativa:** Resolução CONAMA 01/86 e TR SEMA/MT (Parecer nº 138307/2020)
-* **Método:** Verificação de conformidade legal e consistência técnica (Check-list)
+* **Método:** Verificação de conformidade legal e consistência técnica
 * **Foco:** Rigor do estudo (descrição, diagnóstico, impactos e gestão)
 * **Ressalva:** Análise documental, sem vistoria de campo
 
@@ -356,7 +356,7 @@ O PRAD é um exemplo positivo, detalhando ações de engenharia e bioengenharia.
 * **Programa:** **Comunicação Social e Educação Ambiental**
 * **Crítica:** Objetivos genéricos ("manter diálogo")
 * **Falta:** Metas quantitativas (nº eventos, alcance) e indicadores de eficácia
-* **Risco:** Tornar-se apenas protocolar sem participação efetiva
+*   **Risco:** Tornar-se apenas protocolar sem participação efetiva
 
 **Notas do apresentador:**
 Já os programas sociais carecem de indicadores de resultado. Prometer "dialogar" é vago; faltam metas como "realizar X reuniões trimestrais" ou "atingir Y% da população vizinha".
