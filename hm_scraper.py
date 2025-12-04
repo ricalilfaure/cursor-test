@@ -1,0 +1,607 @@
+import asyncio
+import logging
+import re
+from typing import Dict, List, Optional, Set, Tuple
+from urllib.parse import urlparse
+
+import pandas as pd
+from playwright.async_api import async_playwright, TimeoutError as PWTimeout, Page
+
+# ======= CONFIG =======
+CATEGORY_URL_TEMPLATE = (
+    "https://www.hm.com.br/feminino/vestuario"
+    "?category-1=feminino&category-2=vestuario&fuzzy=0&operator=and"
+    "&facets=category-1%2Ccategory-2%2Cfuzzy%2Coperator&sort=score_desc&page={page}"
+)
+START_PAGE = 0
+PAGES_TO_SCAN = 30
+PAGE_RETRIES = 5
+OUTPUT_XLSX = "hm_status(29/11).xlsx"
+HEADLESS = True
+LOG_LEVEL = "INFO"
+
+# Descoberta de PDPs via GraphQL API
+# (configurações antigas não são mais necessárias)
+
+# Timeouts
+NAV_TIMEOUT_MS = 90_000
+STEP_TIMEOUT_MS = 45_000
+
+# ======================
+HM_BASE = "https://www.hm.com.br"
+UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+)
+
+PDP_URL_RE = re.compile(r"/(?:p\b|produto\b|product\b|productpage\b)", re.I)
+
+LABEL_SOLDOUT = "Esgotado"
+LABEL_LOW = "Poucas unidades"
+LABEL_AVAIL = "Disponível"
+LABEL_HYPHEN = "-"
+
+LETTER_SIZES = [
+    "XXXP",
+    "XXP",
+    "XP",
+    "PP",
+    "P",
+    "M",
+    "G",
+    "GG",
+    "XG",
+    "XXG",
+    "XXXG",
+    "XXXXG",
+]
+NUMERIC_ALLOWED = {str(n) for n in range(30, 56, 2)}  # pares 30–56
+
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+log = logging.getLogger("hm")
+
+COOKIE_SELECTORS = [
+    "#onetrust-accept-btn-handler",
+    "button#onetrust-accept-btn-handler",
+    "button:has-text('Aceitar todos')",
+    "button:has-text('Aceitar')",
+    "button:has-text('Accept all')",
+    "button:has-text('Accept')",
+]
+
+OVERLAY_SELECTORS = [
+    "button[aria-label='Fechar']",
+    "button:has-text('Fechar')",
+    "button:has-text('Close')",
+    "[data-testid='modal-close']",
+    "button[aria-label*='close' i]",
+]
+
+CARD_SELECTOR = "article[data-fs-product-card-custom='true']"
+
+
+# ---------------------- utils ----------------------
+
+
+def _order_sizes(all_sizes: List[str]) -> List[str]:
+    letters = [s for s in all_sizes if s.isalpha()]
+    nums = [s for s in all_sizes if s.isdigit()]
+    other = [s for s in all_sizes if s not in letters and s not in nums]
+    ordered_letters = sorted(
+        letters, key=lambda x: (LETTER_SIZES.index(x) if x in LETTER_SIZES else 999, x)
+    )
+    ordered_nums = sorted(nums, key=lambda x: int(x))
+    ordered_other = sorted(other)
+    return ordered_letters + ordered_nums + ordered_other
+
+
+def _normalize_href(href: str) -> str:
+    if href.startswith("/"):
+        return HM_BASE + href
+    if not href.startswith("http"):
+        return HM_BASE.rstrip("/") + "/" + href.lstrip("/")
+    return href
+
+
+def _product_key(url: str) -> str:
+    """Extract unique product identifier from URL, deduplicating size variants"""
+    try:
+        path = urlparse(url).path
+    except Exception:
+        path = url
+    if not path:
+        return url
+    path = path.split("?", 1)[0]
+    # Extract the base product code (before the SKU suffix)
+    # E.g., "calca-jogger-com-detalhe-bordado-1307685001-115369" -> "1307685001"
+    codes = re.findall(r"-(\d{10,})-", path)
+    if codes:
+        return codes[0]
+    # Fallback to any long digit sequence
+    digits = re.findall(r"\d{6,}", path)
+    if digits:
+        return digits[0]
+    slug = path.rstrip("/").split("/")[-1]
+    slug = slug.split(".", 1)[0]
+    # Remove trailing SKU if present
+    slug_clean = re.sub(r"-\d+$", "", slug)
+    return slug_clean or url
+
+
+async def robust_goto(page: Page, url: str):
+    last = None
+    for wait in ("domcontentloaded", "networkidle", "load"):
+        try:
+            await page.goto(url, wait_until=wait, timeout=NAV_TIMEOUT_MS)
+            return
+        except Exception as e:
+            last = e
+    raise last
+
+
+# ------------------ cookies/overlays ------------------
+
+
+async def _maybe_accept_cookies(page: Page):
+    for sel in COOKIE_SELECTORS:
+        try:
+            btn = page.locator(sel)
+            if await btn.count() > 0:
+                await btn.first.click()
+                log.info("Cookie banner aceito (%s).", sel)
+                await page.wait_for_timeout(400)
+                break
+        except Exception:
+            pass
+
+
+async def _close_overlays(page: Page):
+    for sel in OVERLAY_SELECTORS:
+        try:
+            el = page.locator(sel)
+            if await el.count() > 0:
+                await el.first.click()
+                log.info("Overlay fechado (%s).", sel)
+                await page.wait_for_timeout(250)
+        except Exception:
+            pass
+
+
+# ------------------ PDP discovery via GraphQL API interception ------------------
+# The old DOM-based methods are removed as the site now uses GraphQL API with
+# virtual scrolling that limits DOM-based collection to ~36 products.
+
+
+async def discover_pdp_urls(page: Page, limit: Optional[int], category_url: str) -> List[str]:
+    """
+    NEW APPROACH: Intercepts GraphQL API responses to collect product URLs.
+    The H&M website now uses GraphQL API with cursor-based pagination.
+    Virtual scrolling limits DOM-based collection to ~36 products, but the API
+    serves products in batches of 36 SKUs. We scroll to trigger multiple API calls.
+    """
+    products = {}  # key -> full_url
+    seen_skus = set()
+    
+    async def handle_response(response):
+        """Intercept GraphQL responses and extract product data"""
+        try:
+            url = response.url
+            if 'graphql' not in url:
+                return
+            if 'ClientManyProductsQuery' not in url and 'ClientProductGalleryQuery' not in url:
+                return
+            
+            data = await response.json()
+            if 'data' not in data:
+                return
+            
+            search = data['data'].get('search', {})
+            products_wrapper = search.get('products', {})
+            edges = products_wrapper.get('edges', [])
+            
+            for edge in edges:
+                node = edge.get('node', {})
+                slug = node.get('slug')
+                sku = node.get('sku')
+                
+                if not slug or not sku:
+                    continue
+                
+                # Skip if we've seen this SKU already
+                if sku in seen_skus:
+                    continue
+                seen_skus.add(sku)
+                
+                # Construct full URL
+                full_url = f"{HM_BASE}/{slug}/p"
+                
+                # Get product key (base product, not size variant)
+                key = _product_key(full_url)
+                
+                # Store only one URL per base product
+                if key not in products:
+                    products[key] = full_url
+                
+                # Check limit
+                if limit is not None and len(products) >= limit:
+                    return
+        
+        except Exception:
+            pass
+    
+    # Set up response listener BEFORE navigating
+    page.on('response', handle_response)
+    
+    # Now navigate to the category URL
+    try:
+        await page.goto(category_url, wait_until="domcontentloaded")
+    except PWTimeout:
+        log.warning("Timeout inicial ao carregar página; aguardando mais tempo.")
+    try:
+        await page.wait_for_load_state("networkidle", timeout=60_000)
+    except Exception:
+        log.warning("Estado 'networkidle' não atingido; seguindo mesmo assim.")
+    
+    await page.wait_for_timeout(2_500)
+    
+    # Accept cookies and close overlays
+    await _maybe_accept_cookies(page)
+    await _close_overlays(page)
+    
+    # Wait a bit more for initial GraphQL responses
+    await page.wait_for_timeout(1500)
+    
+    log.info("  Scrolling to trigger GraphQL API calls...")
+    
+    # Scroll aggressively to trigger multiple API calls
+    # Each API call fetches 36 SKUs, we need to trigger multiple batches
+    prev_count = 0
+    stable_rounds = 0
+    
+    for i in range(150):  # Increased max rounds significantly
+        # Scroll
+        await page.evaluate('window.scrollBy(0, 450)')
+        await page.wait_for_timeout(600)  # Wait for API calls
+        
+        current_count = len(products)
+        
+        if current_count > prev_count:
+            if i % 10 == 0:
+                log.info(f"  Round {i+1}: {current_count} unique products (SKUs: {len(seen_skus)})")
+            prev_count = current_count
+            stable_rounds = 0
+        else:
+            stable_rounds += 1
+        
+        # Check limit
+        if limit is not None and current_count >= limit:
+            log.info(f"  Reached target of {limit} products")
+            break
+        
+        # Stop if no new products for 10 consecutive rounds
+        if stable_rounds >= 10:
+            log.info(f"  Stable at {current_count} products for {stable_rounds} rounds")
+            break
+        
+        # Check if reached bottom
+        at_bottom = await page.evaluate('''
+            () => (window.innerHeight + window.pageYOffset) >= document.documentElement.scrollHeight - 50
+        ''')
+        
+        if at_bottom and stable_rounds >= 5:
+            break
+    
+    # Remove response listener
+    page.remove_listener('response', handle_response)
+    
+    result = sorted(list(products.values()))
+    log.info(f"Links detectados — total: {len(result)} unique products from {len(seen_skus)} SKUs")
+    
+    return result[:limit] if limit is not None else result
+
+
+# ------------------ PDP -> nome + tamanhos ------------------
+
+
+PARSE_SIZES_JS = r"""
+(() => {
+  const LETTERS = new Set(["XXXP","XXP","XP","PP","P","M","G","GG","XG","XXG","XXXG","XXXXG"]);
+  const NUMERIC = new Set(["32","34","36","38","40","42","44","46","48","50","52","54"]);
+  const SYN = { "XS":"XP", "S":"P", "L":"G", "XL":"XG", "XXL":"XXG" };
+
+  function clean(txt){
+    if(!txt) return "";
+    let t = txt.trim().toUpperCase();
+    t = t.split(/\s|–|-|·|\|/)[0];
+    t = t.replace(/[^A-Z0-9]/g, "");
+    if (SYN[t]) t = SYN[t];
+    return t;
+  }
+
+  function isRed(c){
+    if(!c) return false;
+    const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if(!m) return false;
+    const r = +m[1], g = +m[2], b = +m[3];
+    return (r >= 150 && g <= 110 && b <= 110);
+  }
+
+  function hasRedIndicator(el){
+    const aft = getComputedStyle(el, '::after');
+    const bef = getComputedStyle(el, '::before');
+    if (isRed(aft.backgroundColor) || isRed(aft.borderColor)) return true;
+    if (isRed(bef.backgroundColor) || isRed(bef.borderColor)) return true;
+
+    const rect = el.getBoundingClientRect();
+    for (const k of el.querySelectorAll('*')) {
+      const r = k.getBoundingClientRect();
+      if (r.width <= 22 && r.height <= 22) {
+        const cs = getComputedStyle(k);
+        const inBounds = r.left >= rect.left - 2 && r.right <= rect.right + 2 &&
+                         r.top  >= rect.top - 2  && r.bottom <= rect.bottom + 2;
+        if (!inBounds) continue;
+        if (isRed(cs.backgroundColor) || isRed(cs.borderColor) || isRed(cs.color)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function hasLineThrough(el){
+    const check = (n) => {
+      const cs = getComputedStyle(n);
+      const td = (cs.textDecorationLine || cs.textDecoration || "").toLowerCase();
+      if (td.includes("line-through")) return true;
+      const cl = (n.className || "").toLowerCase();
+      if (cl.includes("strike") || cl.includes("line-through") || cl.includes("cross")) return true;
+      if (n.querySelector("s, del, strike")) return true;
+      return false;
+    };
+    if (check(el)) return true;
+    for (const k of el.querySelectorAll("*")) if (check(k)) return true;
+    return false;
+  }
+
+  // tenta achar o container de tamanhos mais "rico"
+  const containers = Array.from(document.querySelectorAll(
+    '[id*="size" i], [class*="size" i], [data-test*="size" i], section, fieldset, div'
+  )).filter(el => /ESCOLHA O TAMANHO|TAMANHO|SIZE/i.test(el.textContent || ""));
+
+  let scope = document;
+  let best = -1;
+  for (const el of (containers.length ? containers : [document])) {
+    const count = el.querySelectorAll(
+      'button, label, [role="option"], [role="radio"], input[type="radio"]+label, ' +
+      '[data-size], [data-testid*="size" i], li, a, span, div'
+    ).length;
+    if (count > best) { best = count; scope = el; }
+  }
+
+  const nodes = scope.querySelectorAll(
+    'button, label, [role="option"], [role="radio"], input[type="radio"]+label, ' +
+    '[data-size], [data-testid*="size" i], li, a, span, div'
+  );
+
+  const L = [];
+  const N = [];
+  const rank = s => s==='Esgotado' ? 2 : (s==='Poucas unidades' ? 1 : 0);
+
+  for (const el of nodes) {
+    const cand = [
+      clean(el.textContent || ""),
+      clean(el.getAttribute("data-size") || ""),
+      clean(el.getAttribute("data-sku-size") || ""),
+      clean(el.getAttribute("aria-label") || ""),
+      clean(el.getAttribute("title") || "")
+    ].filter(Boolean);
+
+    let label = "";
+    for (const t of cand) {
+      if (LETTERS.has(t) || NUMERIC.has(t)) { label = t; break; }
+    }
+    if (!label) continue;
+
+    const carrier = el.closest('[data-fs-sku-selector-option]') || el;
+    const disabledAttr = carrier.getAttribute("data-fs-sku-selector-disabled");
+    const stockStatus = (carrier.getAttribute("data-fs-stock-status") || "").toLowerCase();
+    const lowAttr = carrier.getAttribute("data-fs-sku-selector-low-stock") === "true";
+    const lowClosest = !!carrier.closest('[data-fs-sku-selector-low-stock="true"]');
+    const aria = (carrier.getAttribute("aria-label") || el.getAttribute("aria-label") || "").toLowerCase();
+    const titleAttr = (carrier.getAttribute("title") || el.getAttribute("title") || "").toLowerCase();
+    const disabled = disabledAttr === "true" || !!carrier.disabled || carrier.getAttribute("aria-disabled") === "true" || getComputedStyle(carrier).pointerEvents === "none";
+    const meta = ((carrier.className||"") + " " + (el.className||"") + " " + aria + " " + titleAttr + " " + stockStatus).toLowerCase();
+    const sold = disabled || hasLineThrough(carrier) || hasLineThrough(el) || /(soldout|sold-out|out-of-stock|unavailable|esgotad)/.test(meta);
+    const lowStockFlag = stockStatus.includes("low") || lowAttr || lowClosest || aria.includes("poucas") || titleAttr.includes("poucas");
+    const low  = !sold && (lowStockFlag || hasRedIndicator(el)); // dot vermelho, atributo low-stock ou label associado
+
+    const status = sold ? "Esgotado" : (low ? "Poucas unidades" : "Disponível");
+
+    if (LETTERS.has(label)) L.push({label, status});
+    else                    N.push({label, status});
+  }
+
+  // escolhe UMA família: a que tiver mais opções
+  const chosen = (N.length > L.length) ? N : L;
+  const bestMap = {};
+  for (const it of chosen) {
+    const prev = bestMap[it.label];
+    if (!prev || rank(it.status) > rank(prev)) bestMap[it.label] = it.status;
+  }
+  return bestMap;
+})()
+"""
+
+
+async def parse_pdp(page: Page) -> Tuple[str, Dict[str, str]]:
+    """Extrai (nome, {tamanho: status}) — família única (letras OU pares 32–52),
+    'Poucas' somente com dot vermelho no próprio botão; 'Esgotado' por disabled/risco."""
+    # 1) Nome
+    name = ""
+    for sel in ["h1", 'meta[property="og:title"]', "title"]:
+        try:
+            loc = page.locator(sel)
+            if await loc.count() > 0:
+                if sel.startswith("meta"):
+                    v = await loc.first.get_attribute("content")
+                else:
+                    v = await loc.first.inner_text()
+                if v and v.strip():
+                    name = v.strip()
+                    break
+        except Exception:
+            pass
+    if not name:
+        name = "Produto H&M"
+
+    # 2) JS no contexto da página: coleta botões, determina status, separa por família
+    try:
+        data = await page.evaluate(PARSE_SIZES_JS)
+    except Exception:
+        data = {}
+
+    sizes_map: Dict[str, str] = {}
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if (k.isalpha() and k in LETTER_SIZES) or (k.isdigit() and k in NUMERIC_ALLOWED):
+                sizes_map[k] = v
+
+    return name, sizes_map
+
+
+# ------------------ Excel ------------------
+
+
+def build_excel(items: List[Tuple[str, Dict[str, str]]]) -> pd.DataFrame:
+    all_sizes = {
+        size
+        for _, mp in items
+        for size in mp.keys()
+    }
+    all_sizes = [
+        s
+        for s in all_sizes
+        if (s.isalpha() and s in LETTER_SIZES) or (s.isdigit() and s in NUMERIC_ALLOWED)
+    ]
+    size_cols = _order_sizes(all_sizes)
+
+    rows = []
+    for name, mp in items:
+        row = {"Nome do Produto": name}
+        for s in size_cols:
+            row[s] = mp.get(s, LABEL_HYPHEN)
+        rows.append(row)
+    return pd.DataFrame(rows, columns=["Nome do Produto"] + size_cols)
+
+
+# ------------------ MAIN ------------------
+
+
+async def main():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=HEADLESS)
+        ctx = await browser.new_context(
+            user_agent=UA,
+            viewport={"width": 1280, "height": 1400},
+            locale="pt-BR",
+        )
+        ctx.set_default_navigation_timeout(NAV_TIMEOUT_MS)
+        ctx.set_default_timeout(STEP_TIMEOUT_MS)
+
+        page = await ctx.new_page()
+
+        pdp_urls: List[str] = []
+        seen_product_keys: Set[str] = set()
+
+        for offset in range(PAGES_TO_SCAN):
+            page_idx = START_PAGE + offset
+            category_url = CATEGORY_URL_TEMPLATE.format(page=page_idx)
+            log.info(
+                "Abrindo categoria (página %d/%d): %s",
+                offset + 1,
+                PAGES_TO_SCAN,
+                category_url,
+            )
+            
+            # IMPORTANT: Set up the GraphQL listener BEFORE navigating
+            # This ensures we capture all API responses from the initial page load
+            log.info("Coletando produtos via GraphQL API...")
+            novos = await discover_pdp_urls(page, None, category_url)
+
+            filtrados = []
+            for url in novos:
+                key = _product_key(url)
+                if key in seen_product_keys:
+                    continue
+                seen_product_keys.add(key)
+                filtrados.append(url)
+
+            total_pagina = len(filtrados)
+            if total_pagina:
+                pdp_urls.extend(filtrados)
+                base_idx = len(pdp_urls) - total_pagina + 1
+                for idx, u in enumerate(filtrados, base_idx):
+                    log.info("  [%d] %s", idx, u)
+                log.info("Página %d: %d produtos novos coletados (total acumulado=%d).", offset + 1, total_pagina, len(pdp_urls))
+            else:
+                log.info("Nenhum novo produto único encontrado nesta página.")
+                try:
+                    debug_prefix = f"DEBUG_category_p{page_idx}"
+                    await page.screenshot(path=f"{debug_prefix}.png", full_page=True)
+                    html = await page.content()
+                    with open(f"{debug_prefix}.html", "w", encoding="utf-8") as f:
+                        f.write(html)
+                    log.info("  → Salvos %s.(html/png) para inspeção.", debug_prefix)
+                except Exception as exc:
+                    log.warning("  → Falha ao salvar debug da página %d: %s", offset + 1, exc)
+
+        log.info("Total de PDPs únicas detectadas: %d", len(pdp_urls))
+
+        if not pdp_urls:
+            await page.screenshot(path="DEBUG_category.png", full_page=True)
+            html = await page.content()
+            with open("DEBUG_category.html", "w", encoding="utf-8") as f:
+                f.write(html)
+            log.error("Nenhum produto encontrado. Salvei DEBUG_category.(html/png).")
+            await ctx.close()
+            await browser.close()
+            return
+
+        items: List[Tuple[str, Dict[str, str]]] = []
+        for i, url in enumerate(pdp_urls, 1):
+            log.info("[%d/%d] Abrindo PDP…", i, len(pdp_urls))
+            try:
+                await page.goto(url, wait_until="domcontentloaded")
+            except PWTimeout:
+                log.warning("Timeout no goto do PDP; continuando.")
+            try:
+                await page.wait_for_load_state("networkidle", timeout=10_000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(600)
+            await _maybe_accept_cookies(page)
+            await _close_overlays(page)
+
+            name, sizes = await parse_pdp(page)
+            log.info(
+                " → %s | tamanhos: %s",
+                name,
+                ", ".join(f"{k}:{v}" for k, v in sorted(sizes.items())),
+            )
+            items.append((name, sizes))
+            log.info("Produto analisado (%d/%d): %s", i, len(pdp_urls), name)
+
+        await ctx.close()
+        await browser.close()
+
+    log.info("Gerando Excel: %s", OUTPUT_XLSX)
+    df = build_excel(items)
+    df.to_excel(OUTPUT_XLSX, index=False)
+    log.info("Concluído. Linhas no Excel: %d", len(df))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
